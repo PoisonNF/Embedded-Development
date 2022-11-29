@@ -178,7 +178,20 @@ public slots:
 
    `void QObject::timerEvent(QTimerEvent*)[virtual];`定时器事件处理函数
 
-​	`void Qobject::killTimer(int id);`关闭参数ID的定时器
+   `void Qobject::killTimer(int id);`关闭参数ID的定时器
+
+## 鼠标和键盘事件
+
+### 鼠标事件
+
+QWidget类定义了以下的虚函数提供对鼠标事件的处理，其参数QMouseEvent描述了鼠标事件的细节，如引发事件的鼠标按键、鼠标所在位置等
+
+- `virtual void mousePressEvent(QMouseEvent* e);//鼠标按下`
+- `virtual void mouseReleaseEvent(QMouseEvent* e);//鼠标抬起`
+- `virtual void mouseDoubleClickEvent(QMouseEvent* e);//鼠标双击`
+- `virtual void mouseMoveEvent(QMouseEvent* e);//鼠标移动`
+
+### 键盘事件
 
 ***
 
@@ -275,6 +288,8 @@ void ctrl::xxxx_Solts()
 }
 ```
 
+***
+# SQLite数据库
 ***
 
 # 打包和部署
