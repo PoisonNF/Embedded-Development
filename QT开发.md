@@ -1,4 +1,4 @@
-# 安装教程和学习教程
+安装教程和学习教程
 
 > [(4条消息) qt6.4.0+visual studio2022+opencv配置教程（2022年最新版）_~幻化成风~的博客-CSDN博客_qt最新版本](https://blog.csdn.net/memorywithyou/article/details/126607163?spm=1001.2014.3001.5506)
 
@@ -144,6 +144,31 @@ public slots:
 
 ***
 
+# MainWindow添加菜单栏
+
+**QMenuBar** --菜单栏类，即下图中红色区域标记，菜单栏类给窗口提供水平菜单栏，此菜单栏占用窗口上方区域，垂直高度不变，水平宽度为窗口宽度，可随窗口大小变化而变化。如下图中“测试”，“test1”，"test2"所在的栏几位QMenuBar
+
+**QMenu** --菜单项，即下图中绿色区域，下图中“测试”,"test1","test2"都是一个独立的菜单，包含各个子菜单。**QMenu还可以用来创建弹出菜单**。
+
+**QAction** --子菜单，即下图中蓝色区域标记的内容，一个子菜单对应一个操作。
+
+![菜单栏](./QT开发.assets/菜单栏.png)
+
+<center><p>菜单示例</p></center>
+
+一般使用QT创造师进行ui编辑，进入“设计”页面，进入如下图所示的界面，具体操作方法见如下两张图，**注意：输入菜单名称后一定要按==“Enter”==键才能生效**。
+
+![创造师](./QT开发.assets/创造师.png)
+
+<center><p>ui设计界面操作</p></center>
+
+![创造师2](./QT开发.assets/创造师2.png)
+
+<center><p>修改相关属性</p></center>
+
+> [Qt基础之菜单栏 - kyzc - 博客园 (cnblogs.com)](https://www.cnblogs.com/kyzc/p/11962903.html)
+
+***
 # 事件
 
 - 在Qt中，事件被封装成对象，所有的事件对象类型都继承自抽象类QEvent
@@ -192,6 +217,11 @@ QWidget类定义了以下的虚函数提供对鼠标事件的处理，其参数Q
 - `virtual void mouseMoveEvent(QMouseEvent* e);//鼠标移动`
 
 ### 键盘事件
+
+QWidget类定义了以下虚函数提供对键盘事件的处理，其参数QKeyEvent描述了键盘事件细节，如引发事件的键盘按键、文本等
+
+- `virtual void keyPressEvent(QKeyEvent* e);//按键按下`
+- `virtual void keyReleaseEvent(QKeyEvent* e);//按键抬起`
 
 ***
 
@@ -290,6 +320,113 @@ void ctrl::xxxx_Solts()
 
 ***
 # SQLite数据库
+
+## 在QT中使用Sqlite数据库
+
+- QSqlDatabase建立Qt应用程序和数据库的连接
+
+```c++
+//添加数据库驱动
+db = QSqlDatabase::addDatabase("QSQLITE");
+//设置数据库名字
+db.setDatabaseName("menu.db");
+//打开数据库
+db.open();
+
+```
+
+<font color=red>Tips:</font>在使用Qt数据库模块需要在工程文件中添加"QT+=sql"
+
+- QSqlQuery执行数据库操作的SQL语句
+
+```c++
+    QSqlQuery query;
+    query.exec("SELECT\DELETE\INSERT\UPDATE等SQL语句");
+```
+
+- QSqlQueryModel获取结果集
+
+```c++
+QString str = QString("SELECT * FROM 表名");
+QSqlQuery *model = new QSqlQueryModel;
+model->setQuery(str);//执行查询操作，并将结果集保存到model对象中
+ui->menuTableView->setModel(model);//显示查询结果
+
+```
+## SQLite创建表
+
+```sqlite
+CREATE TABLE database_name.table_name(
+   column1 datatype  PRIMARY KEY(one or more columns),
+   column2 datatype,
+   column3 datatype,
+   .....
+   columnN datatype,
+);
+```
+
+实例：
+
+```sqlite
+sqlite> CREATE TABLE COMPANY(
+   ID INT PRIMARY KEY     NOT NULL,
+   NAME           TEXT    NOT NULL,
+   AGE            INT     NOT NULL,
+   ADDRESS        CHAR(50),
+   SALARY         REAL
+);
+```
+
+这里涉及到了数据类型的问题，下表为SQLite所有的数据类型。
+
+| **存储类** | 描述                                                         |
+| ---------- | ------------------------------------------------------------ |
+| NULL       | 值是一个 NULL 值。                                           |
+| INTEGER    | 值是一个带符号的整数，根据值的大小存储在 1、2、3、4、6 或 8 字节中。 |
+| REAL       | 值是一个浮点值，存储为 8 字节的 IEEE 浮点数字。              |
+| TEXT       | 值是一个文本字符串，使用数据库编码（UTF-8、UTF-16BE 或 UTF-16LE）存储。 |
+| BLOB       | 值是一个 blob 数据，完全根据它的输入存储。                   |
+
+## SQLite常用语句
+
+### Insert 语句
+
+```sqlite
+INSERT INTO TABLE_NAME [(column1, column2, column3,...columnN)]  
+VALUES (value1, value2, value3,...valueN);
+```
+<font color=red>Tips:</font>当输入值和列表顺序一致时，可以不输入[ ]中的内容
+
+### Select 语句
+
+```sqlite
+SELECT column1, column2, columnN FROM table_name;
+```
+
+如果想获取所有可用的字段
+
+```sqlite
+SELECT * FROM table_name;
+```
+
+### Update 语句
+
+```sqlite
+UPDATE table_name
+SET column1 = value1, column2 = value2...., columnN = valueN
+WHERE [condition]; //可以使用 AND 或 OR 运算符来结合 N 个数量的条件。
+```
+
+### Delete 语句
+
+```sqlite
+DELETE FROM table_name
+WHERE [condition]; //可以使用 AND 或 OR 运算符来结合 N 个数量的条件。
+```
+
+
+
+
 ***
 
 # 打包和部署
@@ -895,3 +1032,251 @@ void RaffleWidget::onTimeOut(void)
 }
 
 ```
+
+## 案例七 学生成绩管理系统
+
+```c++
+/* studentdialog.h */
+#ifndef STUDENTDIALOG_H
+#define STUDENTDIALOG_H
+
+#include <QDialog>
+#include <QSqlDatabase>
+#include <QSqlQuery>
+#include <QSqlQueryModel>
+#include <QSqlError>
+#include <QDebug>
+#include <QMessageBox>
+
+QT_BEGIN_NAMESPACE
+namespace Ui { class StudentDialog; }
+QT_END_NAMESPACE
+
+class StudentDialog : public QDialog
+{
+    Q_OBJECT
+
+public:
+    StudentDialog(QWidget *parent = nullptr);
+    ~StudentDialog();
+private:
+    //创建数据库
+    void createDB();
+    //创建数据表
+    void createTable();
+    //查询
+    void queryTable();
+private slots:
+    //插入按钮对应的槽函数
+    void on_insertButton_clicked();
+    //删除按钮对应的槽函数
+    void on_deleteButton_clicked();
+    //修改按钮对应的槽函数
+    void on_editButton_clicked();
+    //排序按钮对应的槽函数
+    void on_sortButton_clicked();
+
+private:
+    Ui::StudentDialog *ui;
+    QSqlDatabase db;//建立QT和数据库连接
+    QSqlQueryModel model;//保存结果集
+    bool DataExists = false;//存在数据判断标识
+};
+#endif // STUDENTDIALOG_H
+
+```
+
+```c++
+/* studentdialog.cpp */
+#include "studentdialog.h"
+#include "ui_studentdialog.h"
+
+StudentDialog::StudentDialog(QWidget *parent)
+    : QDialog(parent)
+    , ui(new Ui::StudentDialog)
+{
+    ui->setupUi(this);
+    createDB();
+    createTable();
+    queryTable();
+}
+
+StudentDialog::~StudentDialog()
+{
+    delete ui;
+}
+
+//创建数据库
+void StudentDialog::createDB()
+{
+    //添加数据库的驱动
+    db = QSqlDatabase::addDatabase("QSQLITE");
+    //设置数据库名字（文件名）
+    db.setDatabaseName("student.db");
+    //打开数据库
+    if(db.open()==true)
+    {
+        qDebug() << "创建或者打开数据库成功！";
+    }
+    else
+    {
+        qDebug() << "创建或者打开数据库失败！";
+    }
+
+}
+//创建数据表
+void StudentDialog::createTable()
+{
+    QSqlQuery query;
+    QString str = QString("CREATE TABLE student ("
+                          "id INT PRIMARY KEY NOT NULL,"
+                          "name TEXT NOT NULL,"
+                          "score REAL NOT NULL)");
+    if(query.exec(str) == false)
+    {
+        qDebug() << str;
+    }
+    else
+    {
+        qDebug() << "创建数据表成功！";
+    }
+}
+//查询
+void StudentDialog::queryTable()
+{
+    QString str = QString("SELECT * FROM student");
+    model.setQuery(str);
+    ui->tableView->setModel(&model);
+}
+
+//插入按钮对应的槽函数
+void StudentDialog::on_insertButton_clicked()
+{
+	QSqlQuery query;
+    //获取id name score
+    int id = ui->IDEdit->text().toInt();
+    if(id == 0) QMessageBox::critical(this,"Error","ID输入错误！");
+
+    QString name = ui->nameEdit->text();
+    if(name == "") QMessageBox::critical(this,"Error","姓名输入错误！");
+
+    double score = ui->scoreEdit->text().toDouble();
+    if(score<0 || score>100) QMessageBox::critical(this,"Error","成绩输入错误！");
+
+    if(DataExists == true)  //存在数据执行删除语句
+    {
+        QString str = QString("DELETE FROM student WHERE id = %1").arg(id);
+        query.exec(str);
+        qDebug() << str;
+        DataExists = false;
+    }
+
+    QString str = QString("INSERT INTO student VALUES(%1,'%2',%3)").arg(id).arg(name).arg(score);
+    if(query.exec(str)==false)
+    {
+        qDebug() << str;
+    }
+    else
+    {
+        qDebug() << "插入数据成功！";
+        DataExists = true;//表示已有数据
+        queryTable();
+    }
+
+}
+
+//删除按钮对应的槽函数
+void StudentDialog::on_deleteButton_clicked()
+{
+    QSqlQuery query;
+    //获取id
+    int id = ui->IDEdit->text().toInt();
+
+    QString str = QString("DELETE FROM student WHERE id = %1").arg(id);
+
+    if(QMessageBox::question(this,"删除","确定要删除吗？",QMessageBox::Yes|QMessageBox::No) == QMessageBox::No)
+    {
+        return;
+    }
+
+    if(query.exec(str)==false)
+    {
+        qDebug() << str;
+    }
+    else
+    {
+        qDebug() << "删除数据成功！";
+        queryTable();
+    }
+}
+
+//删除按钮对应的槽函数
+void StudentDialog::on_deleteButton_clicked()
+{
+    QSqlQuery query;
+    //获取id
+    int id = ui->IDEdit->text().toInt();
+
+    QString str = QString("DELETE FROM student WHERE id = %1").arg(id);
+
+    if(QMessageBox::question(this,"删除","确定要删除吗？",QMessageBox::Yes|QMessageBox::No) == QMessageBox::No)
+    {
+        return;
+    }
+
+    if(query.exec(str)==false)
+    {
+        qDebug() << str;
+    }
+    else
+    {
+        qDebug() << "删除数据成功！";
+        queryTable();
+    }
+}
+
+//修改按钮对应的槽函数
+void StudentDialog::on_editButton_clicked()
+{
+    QSqlQuery query;
+
+    //获取id score
+    int id = ui->IDEdit->text().toInt();
+    double score = ui->scoreEdit->text().toDouble();
+
+    QString str = QString("UPDATE student SET score=%1 WHERE id =%2").arg(score).arg(id);
+    if(query.exec(str)==false)
+    {
+        qDebug() << str;
+    }
+    else
+    {
+        qDebug() << "修改数据成功！";
+        queryTable();
+    }
+}
+
+//排序按钮对应的槽函数
+void StudentDialog::on_sortButton_clicked()
+{
+    //获取排序列名
+    QString value = ui->valueComboBox->currentText();
+    //排序排序方式
+    QString condition;
+    if(ui->condComboBox->currentIndex()==0)
+    {
+        condition = "ASC";//升序
+    }
+    else
+    {
+        condition = "DESC";//降序
+    }
+    QString str = QString("SELECT * FROM student ORDER BY %1 %2").arg(value).arg(condition);
+    //查询与显示
+    model.setQuery(str);
+    ui->tableView->setModel(&model);
+}
+
+
+```
+

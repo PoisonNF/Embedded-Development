@@ -137,7 +137,7 @@ origin是远程地址的别名，可以修改，一般默认使用就是这个�
 
 在GUI顶部菜单栏中选择**Remote->add**，填入name和location即可。
 
-==最后可以是使用git remote -v查看链接是否完成==
+==最后可以使用git remote -v查看链接是否完成==
 
 # Git从本地上传云端
 
@@ -174,11 +174,11 @@ git commit -m [message]
 
  
 
-(origin为name 可以换成其他名字)
-
-连接远程库git remote add origin git@github.com:PoisonNF/SGA_Demo.git
+连接远程库git remote add origin git@github.com:PoisonNF/SGA_Demo.git (origin为name 可以换成其他名字)
 
 提交最新工程 git push origin main
+
+
 
 查看库是否关联 git remote -v
 
