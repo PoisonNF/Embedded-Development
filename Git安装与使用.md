@@ -166,6 +166,54 @@ git commit -m [message]
 
 ![image-20221129114101560](./Git安装与使用.assets/image-20221129114101560.png)
 
+# Git与他人协作
+
+## Fork项目
+
+想要参与他人项目，首先要去对应项目的主仓库，fork一份仓库。fork可以让主仓库同时存在你的个人账号下。
+
+![image-20230103164603705](./Git安装与使用.assets/image-20230103164603705.png)
+
+点击Fork，可以不勾选`Copy the main branch only`,再点击Create fork，此时，该仓库就出现你的个人账号中了。
+
+![image-20230103164636499](./Git安装与使用.assets/image-20230103164636499.png)
+
+## Clone项目与设置
+
+fork完成后，使用Https进行克隆，语句是`git clone <https链接> .`
+
+这样就克隆到本地了。
+
+![image-20230103165122407](./Git安装与使用.assets/image-20230103165122407.png)
+
+目前查看`git remote -v`会发现只和自己的仓库关联，我们需要关联一下上游仓库，回到被fork的仓库，复制https链接
+
+执行`git remote add upstream <原仓库的https链接>`
+
+![image-20230103165522664](./Git安装与使用.assets/image-20230103165522664.png)
+
+如图所示，完成了关联，接下来就是进行修改了。完成修改后还是commit，然后push 。
+
+## Pull request
+
+完成push操作后，去个人仓库界面找到Pull request，点击new pull request，查看一下需要提交的分支和更改情况，如果没有问题就点击Create pull request，填写一下修改信息，等待管理员审核。
+
+注意图中的==Able to merge==，如果不显示绿色，说明本地仓库并不是最新的，上游仓库可能进行了更改，需要从新拉取一下上游仓库
+
+依次执行
+
+1.`git fetch upstream` 
+
+2.`git merge upstream/main`
+
+完成更新
+
+![image-20230103170148571](./Git安装与使用.assets/image-20230103170148571.png)
+
+![image-20230103170340507](./Git安装与使用.assets/image-20230103170340507.png)
+
+![image-20230103170739334](./Git安装与使用.assets/image-20230103170739334.png)
+
 # Git常用的指令
 
 查看登录用户 git config --global -l
@@ -231,3 +279,5 @@ git commit -m [message]
 [Git工作流和核心原理 | GitHub基本操作 | VS Code里使用Git和关联GitHub_哔哩哔哩_bilibili](https://www.bilibili.com/video/BV1r3411F7kn?spm_id_from=333.851.b_7265636f6d6d656e64.3&vd_source=6057f993f0b528310b130bbca1e824fa)
 
 [(4条消息) git进行版本回退（文件恢复、恢复误提交、已提交）_木鸟飞的博客-CSDN博客_git 回退版本](https://blog.csdn.net/qing040513/article/details/109150075)
+
+[git、github 保姆级教程入门，工作和协作必备技术，github提交pr - pull request](https://www.bilibili.com/video/BV1s3411g7PS?vd_source=b861809de5579169c2e8682cde41b2cd)
