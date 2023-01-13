@@ -1,10 +1,59 @@
-安装教程和学习教程
+# 安装教程和学习教程
+
+本文是我自己在学习QT的时候的心得，基本依照以下博客或者教程编写，方便开发。
 
 > [(4条消息) qt6.4.0+visual studio2022+opencv配置教程（2022年最新版）_~幻化成风~的博客-CSDN博客_qt最新版本](https://blog.csdn.net/memorywithyou/article/details/126607163?spm=1001.2014.3001.5506)
 
 > [【北京迅为】嵌入式学习之QT学习篇](https://www.bilibili.com/video/BV1tp4y1i7EJ?p=7&vd_source=b861809de5579169c2e8682cde41b2cd)
 
 > [收藏】QT图形框架编程开发（层层到肉）_C++图形用户界面开发框架](https://www.bilibili.com/video/BV1Wf4y1Y7uh/?p=3&share_source=copy_web&vd_source=b861809de5579169c2e8682cde41b2cd)
+
+***
+# 开发中遇到一些问题
+
+1. 遇到警告：QT警告**Slots named on_foo_bar are error prone**
+
+    原因：
+
+    这个警告的出现，是因为我们在处理信号–槽关系时，是通过 ui designer中的"Go to slot" ，让程序自动生成。
+    而这种自动生成的弱点就是也许有一天，你在 ui designer中改了控件的名字，但此时编译也不会报错。程序还是正常跑，编译也不提示错误。
+    这样，控件就相当于连不到槽函数上去了，就失效了。
+
+    解决方法：
+
+    - 不要通过ui designer的 “Go to slot” 自动生成 信号–槽的连接关系。手动建立该关系即可。例如：
+        connect(toolButton, &QPushButton::clicked,
+        this, &YourClassName::nameOfYourSlot);
+    - 不要管这个警告，无视他就行了。因为这只是一个善意的提醒。
+
+![image-20230112152452273](./QT开发.assets/image-20230112152452273.png)
+
+2. 问题：在开发Crucis上位机的时候，QPlainTextEdit控件显示的效果与正点原子差距较大，以下为两者比较图
+
+    ![image-20230112152850550](./QT开发.assets/image-20230112152850550.png)
+
+    <center><p>自制的上位机</p></center>
+
+![image-20230112152906592](./QT开发.assets/image-20230112152906592.png)
+
+<center><p>正点原子的XCOM</p></center>
+
+从中会发现两个问题，第一是换行，源代码都是\r\n，但是自制上位机明显多换了一行；第二是自制上位机出现了串行的问题，J 2的数据到了下一行，这样会使得后面的数据库无法分析和存储数据。
+
+解决：我分析是QT中接收槽函数出现了问题，最后发现是readAll( )和appendPlainText( )两个函数的问题。我分别换成了readLine( )和insertPlainText( )才解决问题。
+
+具体分析：
+
+1. 下位机发送都是一行行发，发送速度较快，readAll( )会使得把后面的一些数据都读走了，出现了串行问题，要限制一下读取范围。readLine( )就是读到第一个\n结束
+2. appendPlainText( )的函数功能是Appends a new paragraph with text to the end of the text edit.就是新建一个段落，所以出现了换行再换行的问题。而insertPlainText( )的函数功能是Convenience slot that inserts text at the current cursor position.就是在当前光标位置插入文本，效果就和正点原子的类似。
+
+```c++
+ QString buf;
+    buf = QString(serialPort->readAll()); //应该换成readLine( )
+    ui->ReceivePTE->appendPlainText(buf); //应该换成insertPlainText(buf)
+```
+
+
 
 ***
 
@@ -317,9 +366,128 @@ void ctrl::xxxx_Solts()
     this->close();
 }
 ```
+***
+# 串口相关组件
+
+## 添加串口相关头文件
+
+在QT中使用串口组件，首先需要在项目.pro文件中添加一句`QT += serialport`，保存后会将相关文件添加进入项目中，同时在.h文件中引入下面几个头文件
+
+分别是 
+
+**#include <QSerialPort>** 
+
+**#include <QSerialPortInfo>**
+
+QSerialPort是关于串口本身设置相关的头文件，例如修改停止位，数据位，校验位之类的
+
+QSerialPortInfo是用于收集串口相关数据所使用，例如获取当前可用串口号
+
+## 获取可用串口号
+
+```c++
+/*读取可使用的串口号*/
+QStringList serialNamePort;
+serialPort = new QSerialPort(this);
+foreach (const QSerialPortInfo &info, QSerialPortInfo::availablePorts()) { //将可用的端口放入info中
+    serialNamePort << info.portName();      //将端口名传给QStringList
+}
+ui->UartCB->addItems(serialNamePort);       //输出到串口号CB上
+```
+
+上述程序就是将可用串口号存入serialNamePort中，再将内容添加到对应的ComboBox中，该段程序可以放在窗口的构造函数中
+
+## 串口开启配置
+
+```c++
+
+void MainWindow::on_OpenPB_clicked()
+{
+    //如果串口已经打开，先清除并关闭
+    if(serialPort->isOpen())
+    {
+        serialPort->clear();
+        serialPort->close();
+    }
+    QSerialPort::BaudRate baudRate = QSerialPort::Baud115200;
+    QSerialPort::DataBits dataBits = QSerialPort::Data8;
+    QSerialPort::StopBits stopBits = QSerialPort::OneStop;
+    QSerialPort::Parity checkBits  = QSerialPort::NoParity;
+
+    //获取波特率控件上面的数据
+    if(ui->BaudCB->currentText() == "9600") baudRate = QSerialPort::Baud9600;
+    else if (ui->BaudCB->currentText() == "115200") baudRate = QSerialPort::Baud115200;
+
+    //获取数据位控件上面的数据
+    if(ui->DataCB->currentText() == "5") dataBits = QSerialPort::Data5;
+    else if(ui->DataCB->currentText() == "6") dataBits = QSerialPort::Data6;
+    else if(ui->DataCB->currentText() == "7") dataBits = QSerialPort::Data7;
+    else if(ui->DataCB->currentText() == "8") dataBits = QSerialPort::Data8;
+
+    //获取停止位控件上面的数据
+    if(ui->StopCB->currentText() == "1") stopBits = QSerialPort::OneStop;
+    else if(ui->StopCB->currentText() == "1.5") stopBits = QSerialPort::OneAndHalfStop;
+    else if(ui->StopCB->currentText() == "2") stopBits = QSerialPort::TwoStop;
+
+    //获取校验位控件上面的数据
+    if(ui->checkCB->currentText() == "None") checkBits = QSerialPort::NoParity;
+    else if(ui->checkCB->currentText() == "Odd") checkBits = QSerialPort::OddParity;
+    else if(ui->checkCB->currentText() == "Even") checkBits = QSerialPort::EvenParity;
+
+    //为串口赋值
+    serialPort->setPortName(ui->UartCB->currentText());
+    serialPort->setBaudRate(baudRate);
+    serialPort->setDataBits(dataBits);
+    serialPort->setStopBits(stopBits);
+    serialPort->setParity(checkBits);
+    if(serialPort->open(QIODevice::ReadWrite)== true)
+    {
+        QMessageBox::information(this,"提示",ui->UartCB->currentText()+"打开成功");
+    }
+    else
+    {
+        QMessageBox::critical(this,"提示",ui->UartCB->currentText()+"打开失败");
+    }
+}
+```
+
+开启按键的槽函数，有相关设置的配置，可以参考修改
+
+## 串口接收槽函数
+
+当串口接收到数据后，我们需要继续解析数据并做出相应操作，需要写一个槽函数。
+
+==注意：在窗口的构造函数或者开启槽函数中需要使用关联函数==，例如`connect(serialPort,SIGNAL(readyRead()),this,SLOT(serialPortReadReady_Slot()));`
+
+readyRead( )函数是串口组件的信号，当可以读取时，就发射这个信号，槽函数我这边叫做serialPortReadReady_Slot( )，下面是模板，可以自行添加功能
+
+```c++
+void MainWindow::serialPortReadReady_Slot()
+{
+    QString buf;
+    buf = QString(serialPort->readLine());
+    ui->ReceivePTE->ensureCursorVisible(); //通过滚动文本编辑确保光标可见,始终显示最新一行
+    ui->ReceivePTE->insertPlainText(buf);
+    
+    //这里可以写一些数据简析，数据库也行，要注意处理速度
+}
+```
+
+
 
 ***
 # SQLite数据库
+
+## 添加SQLite相关头文件
+
+在QT中使用串口组件，首先需要在项目.pro文件中添加一句`QT += sql`，保存后会将相关文件添加进入项目中，同时在.h文件中引入下面几个头文件
+
+分别是
+
+**#include <QSqlDatabase>**
+**#include <QSqlQuery>**
+**#include <QSqlQueryModel>**
+**#include <QSqlError>**
 
 ## 在QT中使用Sqlite数据库
 
@@ -424,7 +592,38 @@ DELETE FROM table_name
 WHERE [condition]; //可以使用 AND 或 OR 运算符来结合 N 个数量的条件。
 ```
 
+### Like语句
 
+SQLite 的 **LIKE** 运算符是用来匹配通配符指定模式的文本值。如果搜索表达式与模式表达式匹配，LIKE 运算符将返回真（true），也就是 1。这里有两个通配符与 LIKE 运算符一起使用：
+
+- 百分号 （%）
+- 下划线 （_）
+
+```sqlite
+SELECT column_list 
+FROM table_name
+WHERE column LIKE 'XXXX%'  --百分号（%）代表零个、一个或多个数字或字符。下划线（_）代表一个单一的数字或字符。这些符号可以被组合使用。
+```
+
+## Table View控件的使用
+
+Table View控件一般用来显示SQLite数据库的数据，为了显示更加美观，有以下几个函数可以实现相应的美化（其中JY901TB为Table View名字）
+
+```c++
+ui->JY901TB->verticalHeader()->setHidden(true);//把QTableView中第一列的默认数字列去掉
+ui->JY901TB->horizontalHeader()->setHidden(true);//把QTableView中第一行表头去掉
+
+//设置列宽，第一个参数为列号，第二个参数为宽度，可以自己试验
+ui->JY901TB->setColumnWidth(0,50);
+ui->JY901TB->setColumnWidth(1,75);
+ui->JY901TB->setColumnWidth(2,100);
+ui->JY901TB->setColumnWidth(3,100);
+
+ui->JY901TB->resizeColumnsToContents();//将列宽自适应数据长度
+ui->JY901TB->resizeRowsToContents();//将行宽自适应数据长度
+
+ui->JY901TB->setAlternatingRowColors(true);//QTableView隔行换色
+```
 
 
 ***
@@ -442,6 +641,16 @@ WHERE [condition]; //可以使用 AND 或 OR 运算符来结合 N 个数量的�
 3. 更改.pro文件，添加代码RC_ICONS = 文件名。
 
 4. 再次编译，在工程目录下的release文件夹中，exe文件的图标完成了更改。
+
+如果碰到以下类似报错：==[Makefile.Release:75:release/CrucisIPC_resource_res.o] Error 1==
+
+有两种情况：
+
+1. 你的图片icon，并不是真的.ico文件 ，比如jpg文件或者png文件，你为了方便偷偷的把它的后缀名字改成了.ico文件，说，你是不是这样干的（别问我咋知道的╮(￣▽￣")╭）。附带转换网站   [在线转换图片格式-在线图片转换器- JinaConvert.com](https://jinaconvert.com/cn/index.php)
+
+2. 路径问题，一般和.pro文件放在一起，当然也可以放在其他文件夹，但是要写路径。
+
+> [:-1: error: [Makefile.Debug:72: debug/QtIcon_resource_res.o\] Error 1 原因与彻底解决方案_比卡丘不皮的博客-CSDN博客](https://blog.csdn.net/weixin_42126427/article/details/106686824)
 
 ## 打包封装
 
