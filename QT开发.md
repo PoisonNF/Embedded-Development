@@ -11,15 +11,15 @@
 ***
 # 开发中遇到一些问题
 
-1. 遇到警告：QT警告**Slots named on_foo_bar are error prone**
+1. **遇到警告：**QT警告**Slots named on_foo_bar are error prone**
 
-    原因：
+    **原因：**
 
     这个警告的出现，是因为我们在处理信号–槽关系时，是通过 ui designer中的"Go to slot" ，让程序自动生成。
     而这种自动生成的弱点就是也许有一天，你在 ui designer中改了控件的名字，但此时编译也不会报错。程序还是正常跑，编译也不提示错误。
     这样，控件就相当于连不到槽函数上去了，就失效了。
 
-    解决方法：
+    **解决方法：**
 
     - 不要通过ui designer的 “Go to slot” 自动生成 信号–槽的连接关系。手动建立该关系即可。例如：
         connect(toolButton, &QPushButton::clicked,
@@ -28,7 +28,7 @@
 
 ![image-20230112152452273](./QT开发.assets/image-20230112152452273.png)
 
-2. 问题：在开发Crucis上位机的时候，QPlainTextEdit控件显示的效果与正点原子差距较大，以下为两者比较图
+2. **问题：**在开发Crucis上位机的时候，QPlainTextEdit控件显示的效果与正点原子差距较大，以下为两者比较图
 
     ![image-20230112152850550](./QT开发.assets/image-20230112152850550.png)
 
@@ -40,12 +40,13 @@
 
 从中会发现两个问题，第一是换行，源代码都是\r\n，但是自制上位机明显多换了一行；第二是自制上位机出现了串行的问题，J 2的数据到了下一行，这样会使得后面的数据库无法分析和存储数据。
 
-解决：我分析是QT中接收槽函数出现了问题，最后发现是readAll( )和appendPlainText( )两个函数的问题。我分别换成了readLine( )和insertPlainText( )才解决问题。
+**解决：**我分析是QT中接收槽函数出现了问题，最后发现是readAll( )和appendPlainText( )两个函数的问题。我分别换成了readLine( )和insertPlainText( )才解决问题。
 
-具体分析：
+**具体分析：**
 
-1. 下位机发送都是一行行发，发送速度较快，readAll( )会使得把后面的一些数据都读走了，出现了串行问题，要限制一下读取范围。readLine( )就是读到第一个\n结束
-2. appendPlainText( )的函数功能是Appends a new paragraph with text to the end of the text edit.就是新建一个段落，所以出现了换行再换行的问题。而insertPlainText( )的函数功能是Convenience slot that inserts text at the current cursor position.就是在当前光标位置插入文本，效果就和正点原子的类似。
+- 下位机发送都是一行行发，发送速度较快，readAll( )会使得把后面的一些数据都读走了，出现了串行问题，要限制一下读取范围。readLine( )就是读到第一个\n结束
+
+- appendPlainText( )的函数功能是Appends a new paragraph with text to the end of the text edit.就是新建一个段落，所以出现了换行再换行的问题。而insertPlainText( )的函数功能是Convenience slot that inserts text at the current cursor position.就是在当前光标位置插入文本，效果就和正点原子的类似。
 
 ```c++
  QString buf;
@@ -53,7 +54,75 @@
     ui->ReceivePTE->appendPlainText(buf); //应该换成insertPlainText(buf)
 ```
 
+3. **问题：**上位机在接收STM32数据的时候，传输速率和数据量还没到达最大，就已经出现了卡顿情况
 
+    **解决：**
+
+    具体要求是STM32上传数据到上位机，上位机需要分析头部数据，并且存入数据库，最后显示在Table View中
+
+    ```c++
+    /* 老程序，速度慢 */
+    //如果是JY901的数据
+    if(data.at(0) == 'J')
+    {
+     	//查询数据表中是否已经存在数据
+        QString checkstr = QString("SELECT * FROM jy901 WHERE ID = '%1'").arg(data.at(1));
+        QSqlQuery query(checkstr);
+        if(query.next()) //存在数据，执行更新操作
+        {
+            QString updatestr = QString("UPDATE jy901 SET Data = '%2', X = %3, Y = %4, Z = %5 WHERE ID = %1")
+                                .arg(data.at(1),data.at(2),data.at(3),data.at(4),data.at(5));
+            query.exec(updatestr);
+        }
+        else
+        {
+            QString insertstr = QString("INSERT INTO jy901 VALUES(%1,'%2',%3,%4,%5)")
+                                .arg(data.at(1),data.at(2),data.at(3),data.at(4),data.at(5));
+            query.exec(insertstr);
+        }
+        //Table View显示函数
+    }
+    ```
+
+    分析上述原始程序，每次读取到新数据就打开一次数据库并且写入（更新），同时还要显示在Table View中，这样十分耗时。例如，JY901的四组数据，每组数据来都需要打开关闭数据库4次，严重拖慢了整体速度。下面是对此程序的优化。
+
+    ```c++
+    if(data.at(0) == 'J')
+    {
+        //查询数据表中是否已经存在数据
+        QString checkstr = QString("SELECT * FROM jy901 WHERE ID = '%1'").arg(data.at(1));
+        QSqlQuery query(checkstr);
+        if(query.next() == false)
+        {
+            QString insertstr = QString("INSERT INTO jy901 VALUES(%1,'%2',%3,%4,%5)")
+                                .arg(data.at(1),data.at(2),data.at(3),data.at(4),data.at(5));
+            query.exec(insertstr);
+        }
+        else
+        {
+            JYdatalist << data; //将数据存入容器中 这里的容器定义为QVector<QStringList> JYdatalist;
+            JYnum+=1;
+            if(JYnum == 4) //收集完数据
+            {
+                db.transaction();   //事务处理开始
+                for(int i=0;i<4;i++)
+                {
+                    QString updatestr = QString("UPDATE jy901 SET Data = '%2', X = %3, Y = %4, Z = %5 WHERE ID = %1")
+                               .arg(JYdatalist[i].at(1),JYdatalist[i].at(2),JYdatalist[i].at(3),JYdatalist[i].at(4),JYdatalist[i].at(5));
+                    query.exec(updatestr);
+                }
+                db.commit();    //事务处理结束
+                JYdatalist.clear();
+                JYnum = 0;
+    		   //Table View显示函数
+         	}
+    	}
+    }
+    ```
+
+    经过优化过后的程序，主要使用了C++的STL容器和SQLite中的事务处理函数。将收集到的数据存入容器中，等收集完成后再开启事务一次性写入到数据库中。事务处理函数在处理大量数据时，有着显著的优势。
+
+    
 
 ***
 
