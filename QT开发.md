@@ -553,10 +553,10 @@ void MainWindow::serialPortReadReady_Slot()
 
 分别是
 
-**#include <QSqlDatabase>**
-**#include <QSqlQuery>**
-**#include <QSqlQueryModel>**
-**#include <QSqlError>**
+**#include <QSqlDatabase>** 通过这个类添加 / 删除 / 复制 / 关闭数据库实例
+**#include <QSqlQuery>**数据库查询类
+**#include <QSqlQueryModel>**执行 SQL 语句和遍历结果集的高级接口。可以用来为视图类 (如 QTableView) 提供数据。
+**#include <QSqlError>**数据操作失败可以通过这个类获取相关的错误信息。
 
 ## 在QT中使用Sqlite数据库
 
@@ -693,6 +693,296 @@ ui->JY901TB->resizeRowsToContents();//将行宽自适应数据长度
 
 ui->JY901TB->setAlternatingRowColors(true);//QTableView隔行换色
 ```
+
+***
+
+# 多线程编程
+
+在开发STM32的时候已经见识过多线程对于整个系统灵敏度的改变，在处理复杂任务时会比裸机快很多。那么在开发应用程序时，如果应用程序需要处理大量复杂的数据，仅仅使用主线程是远远不够的，会造成整个程序的卡顿甚至是未响应。例如大量数据的计算或者读写数据库的任务可以交给其他线程完成，最后再由主线程显示结果。
+
+在QT中就有多线程的API，当然以下需要注意：
+
+- 默认的线程在Qt中称之为窗口线程，也叫**主线程**，负责窗口事件处理或者窗口控件数据的更新
+- 子线程负责后台的业务逻辑处理，子线程中不能对窗口对象做任何操作，这些事情需要交给窗口线程处理
+- 主线程和子线程之间如果要进行数据的传递，需要使用Qt中的信号槽机制
+
+目前创建多线程有两种方式，一种是**继承QThread**，另一种是**继承QObject**。接下来详细说明这两种创建多线程的流程，还有两种方式的对比。最后还会介绍一种基于线程池处理多任务的方式。
+
+## 常用函数
+
+### 常用公用成员函数
+
+```c++
+// QThread 类常用 API
+// 构造函数
+QThread::QThread(QObject *parent = Q_NULLPTR);
+// 判断线程中的任务是不是处理完毕了
+bool QThread::isFinished() const;
+// 判断子线程是不是在执行任务
+bool QThread::isRunning() const;
+
+// Qt中的线程可以设置优先级
+// 得到当前线程的优先级
+Priority QThread::priority() const;
+void QThread::setPriority(Priority priority);
+优先级:
+    QThread::IdlePriority         --> 最低的优先级
+    QThread::LowestPriority
+    QThread::LowPriority
+    QThread::NormalPriority
+    QThread::HighPriority
+    QThread::HighestPriority
+    QThread::TimeCriticalPriority --> 最高的优先级
+    QThread::InheritPriority      --> 子线程和其父线程的优先级相同, 默认是这个
+// 退出线程, 停止底层的事件循环
+// 退出线程的工作函数
+void QThread::exit(int returnCode = 0);
+// 调用线程退出函数之后, 线程不会马上退出因为当前任务有可能还没有完成, 调回用这个函数是
+// 等待任务完成, 然后退出线程, 一般情况下会在 exit() 后边调用这个函数
+bool QThread::wait(unsigned long time = ULONG_MAX);
+```
+
+### 信号槽
+
+```c++
+// 和调用 exit() 效果是一样的
+// 代用这个函数之后, 再调用 wait() 函数
+[slot] void QThread::quit();
+// 启动子线程
+[slot] void QThread::start(Priority priority = InheritPriority);
+// 线程退出, 可能是会马上终止线程, 一般情况下不使用这个函数
+[slot] void QThread::terminate();
+
+// 线程中执行的任务完成了, 发出该信号
+// 任务函数中的处理逻辑执行完毕了
+[signal] void QThread::finished();
+// 开始工作之前发出这个信号, 一般不使用
+[signal] void QThread::started();
+```
+
+### 静态函数
+
+```c++
+// 返回一个指向管理当前执行线程的QThread的指针
+[static] QThread *QThread::currentThread();
+// 返回可以在系统上运行的理想线程数 == 和当前电脑的 CPU 核心数相同
+[static] int QThread::idealThreadCount();
+// 线程休眠函数
+[static] void QThread::msleep(unsigned long msecs);	// 单位: 毫秒
+[static] void QThread::sleep(unsigned long secs);	// 单位: 秒
+[static] void QThread::usleep(unsigned long usecs);	// 单位: 微秒
+
+```
+
+## 继承QThread创建线程
+
+1. 需要创建一个线程类的子类，让其继承QThread
+
+    ```c++
+    class MyThread:public QThread
+    {
+        ......
+    }
+    ```
+
+2. 重写父类的虚函数run()，在该函数内部写子线程需要完成的任务
+
+    ```c++
+    class MyThread:public QThread
+    {
+        ......
+     protected:
+        void run()
+        {
+            ........
+        }
+    }
+    ```
+
+3. 在主线程中创建子线程对象，new一个对象即可
+
+    ```c++
+    MyThread * subThread = new MyThread;
+    ```
+
+4. 启动子线程，调用start()方法
+
+    ```c++
+    subThread->start();
+    ```
+
+    <font color=red>Tips:</font>
+
+    - run()函数是一个受保护的成员函数，不能够在类的外部调用。通过当前线程对象调用槽函数 start() 启动子线程，当子线程被启动，这个 run() 函数也就在线程内部被调用了。
+    - 在 Qt 中在子线程中不要操作程序中的窗口类型对象，不允许，如果操作了程序就挂了
+    - 只有主线程才能操作程序中的窗口对象，默认的线程就是主线程，自己创建的就是子线程
+
+>案例八使用了该方法，具体代码在相关案例中（案例八九十要求相同）
+## 继承QObject创建线程
+
+1. 创建一个新的类，让这个类从 QObject 派生
+
+    ```c++
+    class MyWork:public QObject
+    {
+        .......
+    }
+    ```
+
+2. 在这个类中添加一个公共的成员函数，函数体就是我们要子线程中执行的业务逻辑
+
+    ```c++
+    class MyWork:public QObject
+    {
+    public:
+        .......
+        // 函数名自己指定, 叫什么都可以, 参数可以根据实际需求添加
+        void working();
+    }
+    ```
+
+3. 在主线程中创建一个 QThread 对象，这就是子线程的对象
+
+    `QThread* sub = new QThread;`
+
+4. 在主线程中创建工作的类对象（千万不要指定给创建的对象指定父对象）
+
+    ```c++
+    MyWork* work = new MyWork(this);    // error
+    MyWork* work = new MyWork;          // ok
+    ```
+
+5. 将 MyWork 对象移动到创建的子线程对象中，需要调用 QObject 类提供的 moveToThread() 方法
+
+    ```c++
+    // void QObject::moveToThread(QThread *targetThread);
+    // 如果给work指定了父对象, 这个函数调用就失败了
+    // 提示： QObject::moveToThread: Cannot move objects with a parent
+    work->moveToThread(sub);	// 移动到子线程中工作
+    ```
+
+6. 启动子线程，调用 start(), 这时候线程启动了，但是移动到线程中的对象并没有工作
+
+7. 调用 MyWork 类对象的工作函数，让这个函数开始执行，这时候是在移动到的那个子线程中运行的
+
+    >案例九使用了该方法，具体代码在相关案例中（案例八九十要求相同）
+
+## 线程资源释放
+
+如果不使用线程池处理多任务，需要在最后对线程资源进行释放。举例如下：
+
+```c++
+connect(this,&MainWindow::destroyed,this,[=]()
+{
+    t1->quit();
+    t1->wait();
+    t1->deleteLater(); //或者delete t1;
+}
+```
+
+## 两种多线程方式对比
+
+两种多线程方式都可以完成任务，但是有区别。QT官方更加推荐继承QObject的方法，因为更加灵活。比如一个线程想要进行多个任务操作时，如果使用**继承QThread**的方法，需要重写run函数，写入所有任务，并且在后续更改中也十分麻烦。而采用**继承QObject**的方法可以自定好几个任务对象，自由将不同任务放入线程对象中，后续维护程序更加容易。
+
+## 基于线程池处理多任务
+
+线程池是一种多线程处理形式，处理过程中将任务添加到队列，然后在创建线程后自动启动这些任务。线程池线程都是后台线程。每个线程都使用默认的堆栈大小，以默认的优先级运行，并处于多线程单元中。如果某个线程在托管代码中空闲（如正在等待某个事件）, 则线程池将插入另一个辅助线程来使所有处理器保持繁忙。如果所有线程池线程都始终保持繁忙，但队列中包含挂起的工作，则线程池将在一段时间后创建另一个辅助线程但线程的数目永远不会超过最大值。超过最大值的线程可以排队，但他们要等到其他线程完成后才启动。
+
+### QRunnable
+
+在 Qt 中使用线程池需要先创建任务，添加到线程池中的每一个任务都需要是一个 QRunnable 类型，因此在程序中需要创建子类继承 QRunnable 这个类，然后重写 run() 方法，在这个函数中编写要在线程池中执行的任务，并将这个子类对象传递给线程池，这样任务就可以被线程池中的某个工作的线程处理掉了。
+
+```c++
+// 在子类中必须要重写的函数, 里边是任务的处理流程
+[pure virtual] void QRunnable::run();
+
+// 参数设置为 true: 这个任务对象在线程池中的线程中处理完毕, 这个任务对象就会自动销毁
+// 参数设置为 false: 这个任务对象在线程池中的线程中处理完毕, 对象需要程序猿手动销毁
+void QRunnable::setAutoDelete(bool autoDelete);
+// 获取当前任务对象的析构方式,返回true->自动析构, 返回false->手动析构
+bool QRunnable::autoDelete() const;
+```
+
+使用QRunnable实例
+
+```c++
+class MyWork : public QObject, public QRunnable
+{
+    Q_OBJECT
+public:
+    explicit MyWork(QObject *parent = nullptr)
+    {
+        // 任务执行完毕,该对象自动销毁
+        setAutoDelete(true);
+    }
+    ~MyWork();
+
+    void run() override{}
+}
+```
+
+<font color=red>Tips:</font>如果不使用QT中的信号槽机制，可以不继承QOject
+
+### QThreadPool
+
+Qt 中的 QThreadPool 类管理了一组 QThreads, 里边还维护了一个任务队列。QThreadPool 管理和回收各个 QThread 对象，以帮助减少使用线程的程序中的线程创建成本。每个Qt应用程序都有一个全局 QThreadPool 对象，可以通过调用 globalInstance() 来访问它。也可以单独创建一个 QThreadPool 对象使用。
+
+```c++
+// 获取和设置线程中的最大线程个数
+int maxThreadCount() const;
+void setMaxThreadCount(int maxThreadCount);
+
+// 给线程池添加任务, 任务是一个 QRunnable 类型的对象
+// 如果线程池中没有空闲的线程了, 任务会放到任务队列中, 等待线程处理
+void QThreadPool::start(QRunnable * runnable, int priority = 0);
+// 如果线程池中没有空闲的线程了, 直接返回值, 任务添加失败, 任务不会添加到任务队列中
+bool QThreadPool::tryStart(QRunnable * runnable);
+
+// 线程池中被激活的线程的个数(正在工作的线程个数)
+int QThreadPool::activeThreadCount() const;
+
+// 尝试性的将某一个任务从线程池的任务队列中删除, 如果任务已经开始执行就无法删除了
+bool QThreadPool::tryTake(QRunnable *runnable);
+// 将线程池中的任务队列里边没有开始处理的所有任务删除, 如果已经开始处理了就无法通过该函数删除了
+void QThreadPool::clear();
+
+// 在每个Qt应用程序中都有一个全局的线程池对象, 通过这个函数直接访问这个对象
+static QThreadPool * QThreadPool::globalInstance();
+```
+
+使用QThreadPool实例
+
+```c++
+MyWork::MyWork() : QRunnable()
+{
+    // 任务执行完毕,该对象自动销毁
+    setAutoDelete(true);
+}
+void MyWork::run()
+{
+    // 业务处理代码
+    ......
+}
+```
+
+最后在mainwindow中的使用实例
+
+```c++
+MainWindow::MainWindow(QWidget *parent) :
+    QMainWindow(parent),
+    ui(new Ui::MainWindow)
+{
+    ui->setupUi(this);
+
+    // 线程池初始化，设置最大线程池数
+    QThreadPool::globalInstance()->setMaxThreadCount(4);
+    // 添加任务
+    MyWork* task = new MyWork;
+    QThreadPool::globalInstance()->start(task);    
+}
+```
+
+> 案例十使用了该方法，具体代码在相关案例中（案例八九十要求相同）
 
 
 ***
@@ -1556,5 +1846,539 @@ void StudentDialog::on_sortButton_clicked()
 }
 
 
+```
+
+## 案例八  QThread多线程
+
+- 点击开始按钮，在线程A中生成100000个随机数
+- 在线程B中对100000个数进行冒泡排序
+- 在线程C中对100000个数进行快速排序
+- 最后在主线程中显示
+
+```c++
+/*仅展示重要部分*/
+//bubblesort.cpp
+#include "bubblesort.h"
+
+BubbleSort::BubbleSort(QObject *parent)
+    : QThread{parent}
+{
+
+}
+
+void BubbleSort::recvArray(QVector<int> list)
+{
+    m_list = list;
+}
+
+void BubbleSort::run()
+{
+    qDebug()<<"开始排序";
+    time.start();
+    bubblesort(m_list);
+    qDebug() << "冒泡排序执行了" << time.elapsed() << "毫秒";
+    emit finish(m_list);
+}
+
+void BubbleSort::bubblesort(QVector<int> &list)
+{
+    int i,j,temp;
+    for (j=0;j<list.size()-1;j++)    //用一个嵌套循环来遍历一遍每一对相邻元素 （所以冒泡函数慢嘛，时间复杂度高）
+    {
+        for (i=0;i<list.size()-1-j;i++)
+        {
+            if(list[i]>list[i+1])  //从大到小排就把左边的">"改为"<" ！！！
+            {
+                temp=list[i];      //a[i]与a[i+1](即a[i]后面那个) 交换
+                list[i]=list[i+1];    //基本的交换原理"c=a;a=b;b=c"
+                list[i+1]=temp;
+            }
+        }
+    }
+}
+
+//bubblesort.h
+#ifndef BUBBLESORT_H
+#define BUBBLESORT_H
+
+#include<QThread>
+#include<QVector>
+#include<QRandomGenerator>
+#include<QElapsedTimer>
+#include<QDebug>
+
+class BubbleSort : public QThread
+{
+    Q_OBJECT
+public:
+    explicit BubbleSort(QObject *parent = nullptr);
+
+    void recvArray(QVector<int> list);
+
+protected:
+    void run() override;
+
+signals:
+    void finish(QVector<int> list);
+private:
+    void bubblesort(QVector<int> &list);
+    QVector<int> m_list;
+    QRandomGenerator rand;
+    QElapsedTimer time;
+};
+
+#endif // BUBBLESORT_H
+
+//mainwindow.cpp
+#include "mainwindow.h"
+#include "ui_mainwindow.h"
+#include "generate.h"
+#include "bubblesort.h"
+#include "quicksort.h"
+
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent)
+    , ui(new Ui::MainWindow)
+{
+    ui->setupUi(this);
+
+    //创建子线程对象
+    Generate* gen = new Generate;
+    BubbleSort* bubble = new BubbleSort;
+    QuickSort* quick = new QuickSort;
+    //关联开始信号和子线程接收信号
+    connect(this,&MainWindow::starting,gen,&Generate::recvNum);
+    //关联按钮点击信号和启动子线程
+    connect(ui->start,&QPushButton::clicked,this,[=]()
+    {
+        emit starting(10000);
+        gen->start();
+    });
+    //关联两个排序线程接收主线程数据
+    connect(gen,&Generate::sendArray,bubble,&BubbleSort::recvArray);
+    connect(gen,&Generate::sendArray,quick,&QuickSort::recvArray);
+    //关联主线程接收排序线程的数据
+    connect(bubble,&BubbleSort::finish,this,[=](QVector<int> list)
+    {
+        for(int i=0;i<list.size();i++)
+        {
+            ui->bubbleList->addItem(QString::number(list.at(i)));
+        }
+    });
+    connect(quick,&QuickSort::finish,this,[=](QVector<int> list)
+    {
+        for(int i=0;i<list.size();i++)
+        {
+            ui->quickList->addItem(QString::number(list.at(i)));
+        }
+    });
+    //关联子线程发射信号和主线程处理函数
+    connect(gen,&Generate::sendArray,this,[=](QVector<int>list)
+    {
+        bubble->start();
+        quick->start();
+        ui->randList->clear();
+        ui->quickList->clear();
+        ui->bubbleList->clear();
+        for(int i=0;i<list.size();i++)
+        {
+            ui->randList->addItem(QString::number(list.at(i)));
+        }
+    });
+    //当主窗口关闭时释放所有的内存
+    connect(this,&MainWindow::destroyed,this,[=]()
+    {
+        gen->quit();
+        gen->wait();
+        gen->deleteLater();
+
+        bubble->quit();
+        bubble->wait();
+        bubble->deleteLater();
+
+        quick->quit();
+        quick->wait();
+        quick->deleteLater();
+    });
+
+}
+
+MainWindow::~MainWindow()
+{
+    delete ui;
+}
+
+//mainwindow.h
+#ifndef MAINWINDOW_H
+#define MAINWINDOW_H
+
+#include <QMainWindow>
+
+QT_BEGIN_NAMESPACE
+namespace Ui { class MainWindow; }
+QT_END_NAMESPACE
+
+class MainWindow : public QMainWindow
+{
+    Q_OBJECT
+
+public:
+    MainWindow(QWidget *parent = nullptr);
+    ~MainWindow();
+signals:
+    void starting(int num);
+private:
+    Ui::MainWindow *ui;
+};
+#endif // MAINWINDOW_H
+
+//generate.cpp
+#include "generate.h"
+
+Generate::Generate(QObject *parent)
+    : QThread{parent}
+{
+
+}
+
+void Generate::recvNum(int num)
+{
+    m_num = num;
+}
+
+void Generate::run()
+{
+    qDebug() <<"生成随机数的线程地址为：" << QThread::currentThread();
+    QVector<int> list;
+    time.start();
+    for(int i=0;i<m_num;i++)
+    {
+        list.push_back(rand.generate()%100000);
+    }
+    qDebug() << "生成" << m_num << "个随机数耗时：" << time.elapsed() << "毫秒";
+    emit sendArray(list);
+}
+
+```
+
+## 案例九  QObject多线程
+
+要求与案例八相同
+
+```c++
+/*仅展示重要部分*/
+//bubblesort.cpp
+#include "bubblesort.h"
+
+BubbleSort::BubbleSort(QObject *parent)
+    : QObject{parent}
+{
+
+}
+
+void BubbleSort::working(QVector<int> list)
+{
+    qDebug()<<"开始排序";
+    time.start();
+    bubblesort(list);
+    qDebug() << "冒泡排序执行了" << time.elapsed() << "毫秒";
+    emit finish(list);
+}
+
+void BubbleSort::bubblesort(QVector<int> &list)
+{
+    int i,j,temp;
+    for (j=0;j<list.size()-1;j++)    //用一个嵌套循环来遍历一遍每一对相邻元素 （所以冒泡函数慢嘛，时间复杂度高）
+    {
+        for (i=0;i<list.size()-1-j;i++)
+        {
+            if(list[i]>list[i+1])  //从大到小排就把左边的">"改为"<" ！！！
+            {
+                temp=list[i];      //a[i]与a[i+1](即a[i]后面那个) 交换
+                list[i]=list[i+1];    //基本的交换原理"c=a;a=b;b=c"
+                list[i+1]=temp;
+            }
+        }
+    }
+}
+
+//bubblesort.h
+#ifndef BUBBLESORT_H
+#define BUBBLESORT_H
+
+#include<QObject>
+#include<QVector>
+#include<QRandomGenerator>
+#include<QElapsedTimer>
+#include<QDebug>
+
+class BubbleSort : public QObject
+{
+    Q_OBJECT
+public:
+    explicit BubbleSort(QObject *parent = nullptr);
+    void working(QVector<int> list);
+signals:
+    void finish(QVector<int> list);
+private:
+    void bubblesort(QVector<int> &list);
+    QRandomGenerator rand;
+    QElapsedTimer time;
+};
+
+#endif // BUBBLESORT_H
+
+//mainwindow.cpp
+#include "mainwindow.h"
+#include "ui_mainwindow.h"
+#include "generate.h"
+#include "bubblesort.h"
+#include "quicksort.h"
+
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent)
+    , ui(new Ui::MainWindow)
+{
+    ui->setupUi(this);
+
+    //创建子线程对象
+    QThread *t1 = new QThread;
+    QThread *t2 = new QThread;
+    QThread *t3 = new QThread;
+    //创建任务类对象
+    Generate* gen = new Generate;
+    BubbleSort* bubble = new BubbleSort;
+    QuickSort* quick = new QuickSort;
+    //将任务类移到子线程中
+    gen->moveToThread(t1);
+    bubble->moveToThread(t2);
+    quick->moveToThread(t3);
+    //关联开始信号和子线程接收信号
+    connect(this,&MainWindow::starting,gen,&Generate::working);
+    //关联按钮点击信号和启动子线程
+    connect(ui->start,&QPushButton::clicked,this,[=]()
+    {
+        t1->start();
+        emit starting(10000);
+    });
+    //关联两个排序线程接收主线程数据
+    connect(gen,&Generate::sendArray,bubble,&BubbleSort::working);
+    connect(gen,&Generate::sendArray,quick,&QuickSort::working);
+    //关联主线程接收排序线程的数据
+    connect(bubble,&BubbleSort::finish,this,[=](QVector<int> list)
+    {
+        for(int i=0;i<list.size();i++)
+        {
+            ui->bubbleList->addItem(QString::number(list.at(i)));
+        }
+    });
+    connect(quick,&QuickSort::finish,this,[=](QVector<int> list)
+    {
+        for(int i=0;i<list.size();i++)
+        {
+            ui->quickList->addItem(QString::number(list.at(i)));
+        }
+    });
+    //关联子线程发射信号和主线程处理函数
+    connect(gen,&Generate::sendArray,this,[=](QVector<int>list)
+    {
+        t2->start();
+        t3->start();
+        ui->randList->clear();
+        ui->quickList->clear();
+        ui->bubbleList->clear();
+        for(int i=0;i<list.size();i++)
+        {
+            ui->randList->addItem(QString::number(list.at(i)));
+        }
+    });
+    //当主窗口关闭时释放所有的内存
+    connect(this,&MainWindow::destroyed,this,[=]()
+    {
+        t1->quit();
+        t1->wait();
+        t1->deleteLater();
+
+        t2->quit();
+        t2->wait();
+        t2->deleteLater();
+
+        t3->quit();
+        t3->wait();
+        t3->deleteLater();
+    });
+
+}
+
+MainWindow::~MainWindow()
+{
+    delete ui;
+}
+
+//generate.cpp
+#include "generate.h"
+
+Generate::Generate(QObject *parent)
+    : QObject{parent}
+{
+
+}
+
+void Generate::working(int num)
+{
+    qDebug() <<"生成随机数的线程地址为：" << QThread::currentThread();
+    QVector<int> list;
+    time.start();
+    for(int i=0;i<num;i++)
+    {
+        list.push_back(rand.generate()%100000);
+    }
+    qDebug() << "生成" << num << "个随机数耗时：" << time.elapsed() << "毫秒";
+    emit sendArray(list);
+}
+
+```
+
+## 案例十 QThreadPool多线程
+
+要求与案例八相同
+
+```c++
+//bubblesort.cpp
+#include "bubblesort.h"
+
+BubbleSort::BubbleSort(QObject *parent)
+    : QObject{parent},QRunnable()
+{
+    setAutoDelete(true);
+}
+
+void BubbleSort::recvArray(QVector<int> list)
+{
+    m_list = list;
+}
+
+void BubbleSort::run()
+{
+    qDebug()<<"开始排序";
+    time.start();
+    bubblesort(m_list);
+    qDebug() << "冒泡排序执行了" << time.elapsed() << "毫秒";
+    emit finish(m_list);
+}
+
+void BubbleSort::bubblesort(QVector<int> &list)
+{
+    int i,j,temp;
+    for (j=0;j<list.size()-1;j++)    //用一个嵌套循环来遍历一遍每一对相邻元素 （所以冒泡函数慢嘛，时间复杂度高）
+    {
+        for (i=0;i<list.size()-1-j;i++)
+        {
+            if(list[i]>list[i+1])  //从大到小排就把左边的">"改为"<" ！！！
+            {
+                temp=list[i];      //a[i]与a[i+1](即a[i]后面那个) 交换
+                list[i]=list[i+1];    //基本的交换原理"c=a;a=b;b=c"
+                list[i+1]=temp;
+            }
+        }
+    }
+}
+
+//bubblesort.h
+#ifndef BUBBLESORT_H
+#define BUBBLESORT_H
+
+#include<QObject>
+#include<QRunnable>
+#include<QVector>
+#include<QRandomGenerator>
+#include<QElapsedTimer>
+#include<QDebug>
+
+class BubbleSort : public QObject , public QRunnable
+{
+    Q_OBJECT
+public:
+    explicit BubbleSort(QObject *parent = nullptr);
+
+    void recvArray(QVector<int> list);
+
+protected:
+    void run() override;
+
+signals:
+    void finish(QVector<int> list);
+private:
+    void bubblesort(QVector<int> &list);
+    QVector<int> m_list;
+    QRandomGenerator rand;
+    QElapsedTimer time;
+};
+
+#endif // BUBBLESORT_H
+
+//mainwindow.cpp
+#include "mainwindow.h"
+#include "ui_mainwindow.h"
+#include "generate.h"
+#include "bubblesort.h"
+#include "quicksort.h"
+#include <QThreadPool>
+
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent)
+    , ui(new Ui::MainWindow)
+{
+    ui->setupUi(this);
+
+    //创建子线程对象
+    Generate* gen = new Generate;
+    BubbleSort* bubble = new BubbleSort;
+    QuickSort* quick = new QuickSort;
+    //关联开始信号和子线程接收信号
+    connect(this,&MainWindow::starting,gen,&Generate::recvNum);
+    //关联按钮点击信号和启动子线程
+    connect(ui->start,&QPushButton::clicked,this,[=]()
+    {
+        emit starting(10000);
+        QThreadPool::globalInstance()->start(gen);
+    });
+    //关联两个排序线程接收主线程数据
+    connect(gen,&Generate::sendArray,bubble,&BubbleSort::recvArray);
+    connect(gen,&Generate::sendArray,quick,&QuickSort::recvArray);
+    //关联主线程接收排序线程的数据
+    connect(bubble,&BubbleSort::finish,this,[=](QVector<int> list)
+    {
+        for(int i=0;i<list.size();i++)
+        {
+            ui->bubbleList->addItem(QString::number(list.at(i)));
+        }
+    });
+    connect(quick,&QuickSort::finish,this,[=](QVector<int> list)
+    {
+        for(int i=0;i<list.size();i++)
+        {
+            ui->quickList->addItem(QString::number(list.at(i)));
+        }
+    });
+    //关联子线程发射信号和主线程处理函数
+    connect(gen,&Generate::sendArray,this,[=](QVector<int>list)
+    {
+        QThreadPool::globalInstance()->start(bubble);
+        QThreadPool::globalInstance()->start(quick);
+        ui->randList->clear();
+        ui->quickList->clear();
+        ui->bubbleList->clear();
+        for(int i=0;i<list.size();i++)
+        {
+            ui->randList->addItem(QString::number(list.at(i)));
+        }
+    });
+}
+
+MainWindow::~MainWindow()
+{
+    delete ui;
+}
 ```
 
