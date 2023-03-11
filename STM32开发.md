@@ -115,6 +115,8 @@ ZI-data不会被算做代码里因为不会被初始化;
 
 程序运行的时候，芯片内部RAM使用的空间为：               RW Data + ZI Data
 
+-  出现警告`variable "d" was set but never used`，原因是变量'd'定义但从未使用，或者是，虽然这个变量你使用了，但编译器认为变量d所在的语句没有意义，编译器把它优化了。排除未使用的情况，最佳解决办法就是在变量前加==volatile==的修饰符
+
 ***
 # GPIO
 
@@ -478,6 +480,8 @@ void USART1_IRQHandler(UART_HandleTypeDef *huart)
 ## HAL库串口DMA数据收发参考
 
 > [HAL UART DMA 数据收发 - DW039 - 博客园 (cnblogs.com)](https://www.cnblogs.com/dw039/p/11692472.html) 
+>
+> [STM32_HAL库_CubeMx串口DMA通信（DMA发送+DMA空闲接收不定长数据）_何为其然的博客-CSDN博客_dma_handletypedef](https://blog.csdn.net/qq_30267617/article/details/118877845#:~:text=进入到 HAL_UART_Transmit_DMA,这个函数中可以看到，它将DMA传输完成、半完成、错误的回调函数分别定向到了串口DMA传输完成、半完成、错误的回调函数 UART_DMATransmitCplt、UART_DMATxHalfCplt、UART_DMAError 。)
 
 ***
 
@@ -531,6 +535,10 @@ void USART1_IRQHandler(void)
 ```
 
 4.在使用串口DMA时，记得将DMA初始化放在串口初始化之前，DMA的时钟开启必须在USART之前，否则USART是无法使用DMA进行数据接收的。
+
+5.当DMA模式配置为串口发送时，DMA_NORMAL为单次发送，发完就停止了，DMA_CIRCULAR为一直发送。如果想要使用DMA_NORMAL，但是还想连续发送，需要在DMA中断函数中，关闭DMA，清除标志位TC，重载寄存器CNDTR，最后在打开DMA，即可继续发送。下面是标准库参考，API有些区别。
+
+> [STM32的UART DMA传输总结_海鲜小王子的博客-CSDN博客_stm32 dma 传输完一帧数据](https://blog.csdn.net/u011388550/article/details/49965117)
 
 ## DMA外设通道图
 

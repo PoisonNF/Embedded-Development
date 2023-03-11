@@ -192,7 +192,7 @@ fork完成后，使用Https进行克隆，语句是`git clone <https链接> .`
 
 ![image-20230103165522664](./Git安装与使用.assets/image-20230103165522664.png)
 
-如图所示，完成了关联，接下来就是进行修改了。完成修改后还是commit，然后push 。
+如图所示，完成了关联，接下来就是进行修改了。建议==自己创建一个分支==，完成修改后还是commit，然后push 。
 
 ## Pull request
 
@@ -213,6 +213,8 @@ fork完成后，使用Https进行克隆，语句是`git clone <https链接> .`
 ![image-20230103170340507](./Git安装与使用.assets/image-20230103170340507.png)
 
 ![image-20230103170739334](./Git安装与使用.assets/image-20230103170739334.png)
+
+![image-20230304185750354](./Git安装与使用.assets/image-20230304185750354.png)
 
 # Git常用的指令
 
