@@ -86,6 +86,10 @@ open()调用既能打开一个业已存在的文件，也能创建并打开一�
 >
 > open 函数使用的例子 fileio/open.c 
 
+![image-20230312210717507](./Linux开发.assets/image-20230312210717507.png)
+
+![image-20230312210732673](./Linux开发.assets/image-20230312210732673.png)
+
 ### 读取文件内容：read()
 
 ```c
@@ -223,6 +227,8 @@ if(fcntl(fd,F_SETFL,flags) == -1)
     - 一个指针，指向该文件所持有的锁的列表
     - 文件的各种属性，包括文件大小以及与不同类型操作相关的时间戳
 
+![image-20230312205821907](./Linux开发.assets/image-20230312205821907.png)
+
 ### 复制文件描述符dup/dup2
 
 #### dup
@@ -345,3 +351,401 @@ truncate()指定路径，ftruncate()指定文件描述符。
 - off64_t：64位类型，用于表示文件偏移量
 
 > 访问大文件 fileio/large_file.c
+
+#### _FILE_OFFSET_BITS宏
+
+1. 命令行编译时增加选项，例如`$ cc -D_FILE_OFFSET_BITS=64 prog.c`
+
+2. 在所有头文件之前添加宏定义，#define _FILE_OFFSET_BITS 64
+
+#### printf()传递off_t值
+
+将off_t强制转换到long long类型，printf()使用%lld限定符。
+
+### /dev/fd 目录
+
+每个进程都会有个一个虚拟目录，其中包含“/dev/fd/n”形式的文件名，n就是文件描述符的编号。
+
+符号链接： /dev/stdin /dev/stdout /dev/stderr 对应标准输入、标准输出、标准错误
+
+### 创建临时文件
+
+#### mkstemp()
+
+```c
+#include <stdlib.h>
+int mkstemp(char *template);
+```
+
+模板参数采用路径名形式，其中最后 6 个字符必须为 XXXXXX。这 6 个字符将被替换，
+以保证文件名的唯一性，且修改后的字符串将通过 template 参数传回。因为会对传入的 template
+参数进行修改，所以必须将其指定为字符数组，而非字符串常量。
+
+```c
+char template[] = "/tmp/somestringXXXXXX";
+fd = mkstemp(template);
+if(fd == -1)
+    prinf("mkstemp\n");
+printf("Generated filename was: %s\n",template);
+unlink(template); //删除临时文件
+```
+
+#### tmpfile()
+
+```c
+#include <stdio.h>
+FILE *tmpfile(void);
+```
+
+tmpfile()函数会创建一个名称唯一的临时文件，并以读写方式将其打开。（打开该文件时 使用了 O_EXCL 标志，以防一个可能性极小的冲突，即另一个进程已经创建了一个同名文件。
+
+tmpfile()函数执行成功，将返回一个文件流供 stdio 库函数使用。文件流关闭后将自动删除临时文件。为达到这一目的，tmpfile()函数会在打开文件后，从内部立即调用 unlink()来删除该文件名 。
+
+## Chapter6 进程
+
+### 进程和程序
+
+进程（process）是一个可执行程序（program）的实例。程序是包含了一系列信息的文件，这些信息描述了如何在运行时创建一个进程。
+
+### 进程号与父进程号
+
+```c
+#include <unistd.h>
+pid_t getpid(void);
+```
+
+返回调用进程的进程号。进程号超过32767，会重置为300，低数值的进程号为系统进程和守护进程。
+
+```c
+#include <unistd.h>
+pid_t getppid(void);
+```
+
+返回父进程的进程号。1 号进程—init 进程，即所有进程的始祖。
+
+### 进程内存布局
+
+1. 文本段，机器语言指令，只读
+
+2. 数据段，显式初始化的全局变量和静态变量
+
+3. BSS段，未初始化的全局变量和静态变量
+
+4. 栈，系统分配
+
+5. 堆，手动申请释放。堆顶端称作program break
+
+> 程序变量在进程内存各段中的位置 proc/mem_segments.c
+
+![image-20230312205929300](./Linux开发.assets/image-20230312205929300.png)
+
+### 虚拟内存管理
+
+虚拟内存技术：
+
+- 空间局部性：是指程序倾向于访问在最近访问过的内存地址附近的内存
+- 时间局部性：是指程序倾向于在不久的将来再次访问最近刚访问过的内存地址
+
+虚拟内存的规划之一是将每个程序使用的内存切割成小型的、固定大小的“页”（page） 单元。相应地，将 RAM 划分成一系列与虚存页尺寸相同的页帧。任一时刻，每个程序仅有部分页需要驻留在物理内存页帧中。这些页构成了所谓驻留集（resident set）。程序未使用的页 拷贝保存在交换区（swap area）内—这是磁盘空间中的保留区域，作为计算机 RAM 的补充—  仅在需要时才会载入物理内存。若进程欲访问的页面目前并未驻留在物理内存中，将会发生页面错误（page fault），内核即刻挂起进程的执行，同时从磁盘中将该页面载入内存。
+
+![image-20230312210134869](./Linux开发.assets/image-20230312210134869.png)
+
+x86-32中，页面大小为4096个字节。
+
+进程的有效虚拟地址范围在其生命周期中可以发生变化。
+
+虚拟内存的优点；
+
+- 进程与进程、进程与内核相互隔离，所以一个进程不能读取或修改另一进程或内核的内存。
+- 适当情况下，两个或者更多进程能够共享内存。
+- 便于实现内存保护机制。
+- 程序员和编译器、链接器之类的工具无需关注程序在 RAM 中的物理布局。
+- 因为需要驻留在内存中的仅是程序的一部分，所以程序的加载和运行都很快。
+- 每个进程使用的 RAM 减少了，RAM 中同时可以容纳的进程数量就增多了。
+
+### 栈和栈帧
+
+栈驻留在内存的高端并向下增长，栈指针（stack pointer），用于跟踪当前栈顶。每次调用函数时，会在栈上新分配一帧，每当函数返回时，再从栈上将此帧移去。
+
+每个（用户）栈帧包括以下信息：
+
+- 函数实参和局部变量
+- （函数）调用的链接信息
+
+### 命令行参数（argc，argv）
+
+int argc 命令行参数的个数
+
+char *argv[ ] 指向命令行参数的指针数组，argv[argc]为 NULL
+
+> 回显命令行参数 proc/necho.c
+
+### 环境列表
+
+环境列表中每个字符串都以名称=值（name=value）形式定义。
+
+新进程在创建之时，会继承其父进程的环境副本。这是一种原始的进程间通信方式，却颇为常用。（单向，一次性）
+
+setenv设置环境变量，unset撤销环境变量，printenv显示当前环境变量
+
+#### 从程序中访问环境
+
+在 C 语言程序中，可以使用全局变量 char **environ 访问环境列表。
+
+> 显示进程环境 proc/display_env.c
+
+另外，还可以通过声明 main()函数中的第三个参数来访问环境列表：
+
+`int main(int argc,char *argv[],char *envp[])`
+
+要避免使用，因为除了局限于作用域限制外， 该特性也不在 SUSv3 的规范之列。
+
+```c
+#include <stdlib.h>
+char *getenv(const char *name);
+```
+
+向 getenv()函数提供环境变量名称，该函数将返回相应字符串指针。如果不存在指 定名称的环境变量，那么 getenv()函数将返回 NULL。
+
+#### 修改环境
+
+```c
+#include <stdlib.h>
+int putenv(char *string);
+```
+
+putenv()函数向调用进程的环境中添加一个新变量，或者修改一个已经存在的变量值。
+
+putenv()调用失败返回非0值，而不是-1
+
+```c
+#include <stdlib.h>
+int setenv(const char *name,const char *value,int overwrite);
+```
+
+name和value对应环境变量左右，setenv()会添加等号。
+
+overwrite 为非0值，强制改变环境。如果环境中存在name标识的变量，且overwrite值为0，则不改变环境。
+
+```c
+#include <stdlib.h>
+int unsetenv(const char *name);
+```
+
+unsetenv()函数从环境中移除由 name 参数标识的变量。
+
+```c
+#define _BSD_SOURCE		/* Or: #define _SVID_SOURCE */
+#include <stdlib.h>
+int clearenv(void);
+```
+
+清除整个环境。
+
+> 修改进程环境  proc/modify_env.c
+
+### 非局部跳转：setjmp()和longjmp()
+
+这两个函数可以实现跨函数的跳转。C 语言的 goto 语句存在一个限制，即不能从当前函数跳转到另一函数。
+
+```c
+#include <setjmp.h>
+int setjmp(jmp_buf env);
+void longjmp(jmp_buf env,int val);
+```
+
+初始调用返回值为 0，后续“伪”返回的返回值为 longjmp()调用中 val 参数所指定的任意值。
+
+> 展示函数 setjmp()和 longjmp()的用法 proc/longjmp.c
+
+#### 优化编译器的问题
+
+一般包含指针变量和 char、int、float、long 等任何简单类型的变量会受到longjmp()的干扰，将变量声明为 volatile，是告诉优化器不要对其进行优化，从而避免了代码重组。最好将所有局部变量都声明为volatile
+
+> 编译器的优化和 longjmp()函数相互作用的示例  proc/setjmp_vars.c
+
+#### 尽可能避免使用 setjmp()函数和 longjmp()函数
+
+## Chapter7 内存分配
+
+### 在堆上分配内存
+
+堆是一段长度可变的连续虚拟内存，通常将堆的当前内存边界称为“program break”堆顶
+
+### 调整堆顶：brk()和sbrk()
+
+```c
+#include <unistd.h>
+int brk(void *end_data_segment);
+void *sbrk(intptr_t increment);		//sbrk是在brk基础上实现的一个库函数
+```
+
+系统调用 brk()会将 program break 设置为参数 end_data_segment 所指定的位置。不足一页会到下一个内存页的边界处。
+
+调用 sbrk()将 program break 在原有地址上增加从参数 increment 传入的大小。sbrk()返回前一个 program break 的地址，指向这块新分配内存起始位置的指针。调用 sbrk(0)将返回 program break 的当前位置，追踪堆的大小。
+
+### 在堆上分配内存：malloc()和free()
+
+```c
+#include <stdlib.h>
+void *malloc(size_t size);
+void free(void *ptr);
+```
+
+malloc( )函数在堆上分配参数 size 字节大小的内存（字节对齐），并返回指向新分配内存起始位置处的指针，其所分配的内存未经初始化。由于 malloc()的返回类型为 void*，因而可以将其赋给任意类型的 C 指针。
+
+free()函数释放 ptr 参数所指向的内存块，并不降低 program break 的位置，而是将这块内存填加到空闲内存列表 中，供后续的 malloc()函数循环使用。
+
+> 示范释放内存时 program break 的行为 memalloc/free_and_sbrk.c
+
+### 在堆上分配内存的其他方法
+
+#### 使用calloc()和realloc()分配
+
+```c
+#include <stdlib.h>
+void *calloc(size_t numitems,size_t size);
+```
+
+参数 mumitems 指定分配对象的数量，size 指定每个对象的大小。calloc()会将已分配的内存初始化为 0。
+
+```c
+#include <stdlib.h>
+void *realloc(void *ptr,size_t size);
+```
+
+调整一块内存的大小，返回的位置可能不同。
+
+若原内存块位于堆的顶部，将对堆空间进行拓展；若原内存在堆的中部，且紧邻其后的空闲内存空间大小不足，realloc()会分配一块新内存，并将原有数据复制到新内存块中。最后这种情况最为常见，还会占用大量 CPU 资源。一般情况下，应尽量避免调用 realloc()。
+
+#### 分配对齐内存
+
+```c
+#include <malloc.h>
+void *memalign(size_t boundary,size_t size);
+```
+
+函数 memalign()分配 size 个字节的内存，起始地址是参数 boundary 的整数倍，而 boundary 必须是 2 的整数次幂。函数返回已分配内存的地址。
+
+```c
+#include <stdlib.h>
+int posix_memalign(void **memptr,size_t alignment,size_t size);
+```
+
+已分配的内存地址通过参数 memptr 返回。内存与 alignment 参数的整数倍对齐 ，alignment 必须是 sizeof（void*）（在大多数硬件架构上是 4 或 8 个字节）与 2 的整数次幂两者间的乘积。
+
+### 在堆栈上分配内存：alloca()
+
+```c
+#include <alloca.h>
+void *alloca(size_t size);
+```
+
+通过增加栈帧的大小从堆栈上分配。不需要使用free()来释放内存。也不可能调用 realloc()来调整由 alloca()分配的内存大小。
+
+## Chapter8 用户与组
+
+### 密码文件：/etc/passwd
+
+bcl：x:1000:1000:bcl,,,:/home/bcl:/bin/bash
+
+登录名 加密的密码：x 用户ID 组ID 注释 主目录 登录shell
+
+### shadow密码文件：/etc/shadow
+
+加密处理的密码则由 shadow 密码文件单独维护，仅供具有特权的程序读取。
+
+### 组文件： /etc/group
+
+users :x：100:
+
+组名 加密过的密码 组ID 用户列表
+
+### 获取用户和组的信息
+
+#### 从密码文件获取记录
+
+```c
+#include <pwd.h>
+struct passwd *getpwnam(const char *name);
+struct passwd *getwuid(uid_t uid);
+```
+
+提供name，返回指针。
+
+两者都不可重入。
+
+> [C语言函数重入_c语言可重入函数有哪些_hNicholas的博客-CSDN博客](https://blog.csdn.net/zhongbeida_xue/article/details/81355641)
+
+#### 从组文件获取记录
+
+```c
+#include <grp.h>
+struct group *getgrnam(const char *name);
+struct group *getgrgid(gid_t gid);
+```
+
+函数 getgrnam()和 getgrgid()分别通过组名和组 ID 来查找属组信息。
+
+> 在用户名/组名和用户 ID/组 ID 之间互相转换的函数 users_groups/ugid_functions.c
+
+#### 扫描密码文件和组文件中的所有记录
+
+```c
+#include <pwd.h>
+struct passwd *getwent(void);
+void setpwent(void);
+void endpwent(void);
+```
+
+函数 getpwent()能够从密码文件中逐条返回记录。
+
+当密码文件处理完毕后，可调用 endpwent()将其关闭。
+
+调用 setpwent()函数重返文件起始处。
+
+#### 从 shadow 密码文件中获取记录
+
+```c
+#include <shadow.h>
+struct spwd *getspnam(const char *name);
+struct spwd *getspent(void);
+
+void setspent(void);
+void endspent(void);
+```
+
+下列函数的作用包括从 shadow 密码文件中获取个别记录，以及扫描该文件中的所有记录。
+
+### 密码加密和用户认证
+
+```c
+#define _XOPEN_SOURCE
+#include <unistd.h>
+char *crypt(const char *key,const char *salt);
+```
+
+crypt()算法会接受一个最长可达 8 字符的密钥（即密码），并施之以数据加密算法（DES） 的一种变体。salt 参数指向一个两字符的字符串，用来扰动（改变）DES 算法，设计该技术， 意在使得经过加密的密码更加难以破解。该函数会返回一个指针，指向长度为 13 个字符的字符串，该字符串为静态分配而成，内容即为经过加密处理的密码。
+
+==要想在 Linux 中使用 crypt()==，在编译程序时需在末尾添加–lcrypt 选项，以便程序链接 crypt 库。
+
+```c
+#define _BSD_SOURCE
+#include <unistd.h>
+char *getpass(const char *prompt);
+```
+
+读取用户密码。该函数会打印出 prompt 所指向的字符串，读取一行输入，返回以 NULL 结尾的输入字符串（剥离尾部的换行符）作为函数结果。
+
+> 根据 shadow 密码文件验证用户 users_groups/check_password.c
+
+```c
+char *fgets(char *s,int size,FILE *stream);
+```
+
+s 代表要保存到的内存空间的首地址，可以是字符数组名，也可以是指向字符数组的字符指针变量名。size 代表的是读取字符串的长度。stream 表示从何种流中读取，可以是标准输入流 stdin，也可以是文件流。
+
+获取Linux的root权限：
+
+1. 在终端输入sudo passwd root，输入登录密码
+2. 接着输入su，在输入一次密码获取root权限
