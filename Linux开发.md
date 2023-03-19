@@ -749,3 +749,660 @@ s 代表要保存到的内存空间的首地址，可以是字符数组名，也
 
 1. 在终端输入sudo passwd root，输入登录密码
 2. 接着输入su，在输入一次密码获取root权限
+
+## Chapter9 进程凭证
+
+### 实际用户ID和实际组ID
+
+实际用户ID为/etc/passwd文件中对应记录的第三字段
+
+实际组ID为/etc/passwd文件中对应记录的第四字段
+
+### 有效用户ID和有效组ID
+
+用于确定授予进程的权限，有效用户ID为0（root的用户ID）的进程拥有超级用户的所有权限。
+
+通常，有效用户ID及组ID与其对应的实际ID相等。有办法使两者不相同。
+
+### Set-User-ID 和Set-Group-ID程序
+
+设置了 set-user-ID 权限位，那么当运行该程序时，进程会取得超级用户权限
+
+访问受保护的文件：创建一个具有对该文件访问权限的专用用户（组）ID，然后再创建一个 set-user-ID （set-group-ID）程序，将进程有效用户（组）ID 变更为这个专用 ID。这样，无需拥有超级用户的所有权限，程序就能访问该文件。
+
+> 将8-2的程序设置为任意用户可以执行，设置为set-user-ID-root程序
+>
+> chown root check_password
+>
+> chmod u+s check_password
+>
+> ls -l check_password
+
+### 保存Set-User-ID 和Set-Group-ID程序
+
+举例说明上述操作的效果，假设某进程的实际用户 ID、有效用户 ID 和保存 set-user-ID 均 为 1000，当其执行了 root 用户（用户 ID 为 0）拥有的 set-user-ID 程序后，进程的用户 ID 将 发生如下变化：
+
+real =1000,effective= 0,saved =0
+
+### 文件系统用户ID和组ID
+
+历史遗留问题，文件系统用户 ID 和组 ID 的值等同于相应的有效用户 ID 和组 ID。
+
+### 辅助组ID
+
+辅助组 ID 用于标识进程所属的若干附加的组。
+
+### 获取和修改实际、有效和保存设置标识
+
+#### 获取实际和有效ID
+
+```c
+#include <unistd.h>
+uid_t getuid(void);
+uid_t geteuid(void);
+gid_t getgid(void);
+gid_t getegid(void);
+```
+
+获取进程的有效ID。
+
+#### 修改有效ID
+
+```c
+#include <unistd.h>
+int setuid(uid_t uid);
+int setgid(gid_t gid);
+```
+
+规则：
+
+1. 当非特权进程调用 setuid()时，仅能修改进程的有效用户 ID。
+2. 当特权进程以一个非 0 参数调用 setuid()时，其实际用户 ID、有效用户 ID 和保存 set-user-ID 均被置为 uid 参数所指定的值。（会失去特权，无法恢复）
+
+```c
+#include <unistd.h>
+int seteuid(uid_t uid);
+int setegid(gid_t gid);
+```
+
+跟上面类似，但是可以对特权收放自如
+
+#### 修改实际ID和有效ID
+
+```c
+#include <unistd.h>
+int setreuid(uid_t ruid,uid_t euid);
+int setregid(gid_t rgid,gid_t egid);
+```
+
+这两个系统调用的第一个参数都是新的实际 ID，第二个参数都是新的有效 ID。若只想修 改其中的一个 ID，可以将另外一个参数指定为−1。
+
+永久放弃特权的方法：`setreuid(getuid(),getuid())`
+
+#### 获取实际、有效和保存设置ID
+
+```c
+#define _GNU_SOURCE
+#include <unistd.h>
+int getresuid(uid_t *ruid,uid_t *euid,uid_t *suid);
+int getresgid(gid_t *rgid,git_t *egid,gid_t *sgid);
+```
+
+getresuid()系统调用将调用进程的当前实际用户 ID、有效用户 ID 和保存 set-user-ID 值返
+回至给定 3 个参数所指定的位置。
+
+#### 修改实际、有效和保存设置ID
+
+```c
+#define _GNU_SOURCE
+#include <unistd.h>
+int setresuid(uid_t ruid,uid_t euid,uid_t suid);
+int setresgid(gid_t rgid,git_t egid,gid_t sgid);
+```
+
+无意修改的参数指定为-1
+
+### 获取和修改文件系统ID
+
+Linux 特有
+
+```c
+#include <sys/fsuid.h>
+int setfsuid(uid_t fsuid);
+int setfsgid(gid_t fsguid);
+```
+
+setfsuid()系统调用将进程文件系统用户 ID 修改为参数 fsuid 所指定的值。setfsgid()系统调用将文件系统组 ID 修改为参数 fsgid 所指定的值。
+
+### 获取和修改辅助组ID
+
+```c
+#include <unistd.h>
+int getgroups(int gidsetsize,gid_t grouplist[]);
+```
+
+getgroups()系统调用会将当前进程所属组的集合返回至由参数 grouplist 指向的数组中。
+
+```c
+#define _BSD_SOURCE
+#include <grp.h>
+int setgroups(size_t gidsetsize,const gid_t *grouplist);
+int initgroups(const char *user,gid_t group);
+```
+
+特权进程能够使用这两个函数修改辅助组ID集合。
+
+setgroups()系统调用用 grouplist 数组所指定的集合来替换调用进程的辅助组 ID。参数 gidsetsize 指定了置于参数 grouplist 数组中的组 ID 数量。
+
+initgroups()函数将扫描/etc/groups 文件，为 user 创建属组列表，以此来初始化调用进程的辅助组 ID。另外，也会将参数 group 指定的组 ID 追加到进程辅助组 ID 的集合中。
+
+### 修改进程凭证的系统调用总结
+
+![image-20230315164344297](./Linux开发.assets/image-20230315164344297.png)
+
+> 显示进程的所有用户 ID 和组 ID proccred/idshow.c
+
+## Chapter10 时间
+
+### 日历时间
+
+内部对时间的表达方式为从Epoch以来的秒数来度量。从格林威治标准时间1970 年 1 月 1 日早晨零点开始。存储在类型为time_t的变量中。
+
+```c
+#include <sys/time.h>
+int gettimeofday(struct timeval *tv,struct timezone *tz);
+```
+
+tv为一个指针
+
+```c
+struct timeval{
+	time_t 		tv_Sec;		/* Seconds since 00:00:00 ,1 Jan 1970 UTC */
+	suseconds_t tv_usec;	/* Addtional microseconds (long int) */
+}
+```
+
+tz已遭废弃，应始终置为NULL
+
+```c
+#include <time.h>
+time_t time(time_t *timep);
+```
+
+time()系统调用返回自 Epoch 以来的秒数。如果 timep 参数不为 NULL，那么还会将自 Epoch 以来的秒数置于 timep 所指向的位置。
+
+往往采用下面的调用，`t = time(NULL);`
+
+### 时间转换函数
+
+![image-20230315193201199](./Linux开发.assets/image-20230315193201199.png)
+
+#### 将time_t转换为可打印格式
+
+```c
+#include <time.h>
+char *ctime(const time_T *timep);
+```
+
+把一个指向 time_t 的指针作为 timep 参数传入函数 ctime()，将返回一个长达 26 字节的字符串，内含标准格式的日期和时间。
+
+> ctime_r()是ctime()的可重入版本，需要额外指定一个指针参数，用于返回时间字符串。
+
+#### time_t和分解时间之间的转换
+
+```c
+#include <time.h>
+struct tm *gmtime(const time_t *timep);
+struct tm *localtime(const time_t *timep);
+```
+
+函数 gmtime()和 localtime()可将一 time_t 值转换为一个所谓的分解时间。
+
+gmtime()转换为对应于UTC的分解时间；localtime(）转换为系统本地时间的分解时间。
+
+```c
+#include <time.h>
+time_t mktime(struct tm *timeptr);
+```
+
+函数 mktime() 将一个本地时区的分解时间翻译为 time_t 值，并将其作为函数结果返回。
+
+mktime()在进行转换时会对时区进行设置。此外，DST 设置的使用与否取决于输入字段 tm_isdst 的值。 
+
+- 若 tm_isdst 为 0，则将这一时间视为标准间（即，忽略夏令时，即使实际上每年的这 一时刻处于夏令时阶段）。 
+- 若 tm_isdst 大于 0，则将这一时间视为夏令时（即，夏令时生效，即使每年的此时不 处于夏令时阶段）。 
+- 若 tm_isdst 小于 0，则试图判定 DTS 在每年的这一时间是否生效。这往往是众望所归的设置。
+
+#### 分解时间和打印时间的转换
+
+```c
+#include <time.h>
+char *asctime(const struct tm *limeptr);
+```
+
+在参数 tm 中提供一个指向分解时间结构的指针，asctime()则会返回一指针，指向经由静态分配的字符串，内含时间，格式则与 ctime ()相同。
+
+> 获取和转换日历时间 time/calendar_time.c
+
+```c
+#include <time.h>
+size_t strftime(char *outstr,size_t maxsize,const char *format,const struct tm *timeptr);
+```
+
+outstr 中返回的字符串按照 format 参数定义的格式做了格式化。Maxsize 参数指定 outstr 的最大长度。strftime()的 format 参数是一字符串，与赋予 printf()的参数相类似。strftime()返回 outstr 所指缓冲区的字节长度，且不包括终止空字节。
+
+> 返回当前时间的字符串的函数 curr_time.c
+
+```c
+#define _XOPEN_SOURCE
+#include <time.h>
+char *strptime(const char *str,const char *format,struct tm *timeptr);
+```
+
+函数strptime()按照参数format内的格式要求，对由日期和时间组成的字符串str加以解析， 并将转换后的分解时间置于指针 timeptr 所指向的结构体中。如果成功，strptime()返回一指针，指向 str 中下一个未经处理的字符。出错为NULL
+
+> 获取和转换日历时间 time/strtime.c
+
+### 时区
+
+#### 时区定义
+
+在目录/usr/share/zoneinfo中，每个文件都包含一个特定国家或地区的相关信息
+
+系统的本地时间由时区文件/etc/localtime 定义
+
+#### 为程序指定时区
+
+TZ环境变量设置为由一冒号(:)和时区名称组成的字符串。设置时区会自动影响到函数 ctime()、 localtime()、mktime()和 strftime()。上述函数都会调用 tzset(3)，对3个全局变量进行初始化。
+
+> 演示时区和地区的效果 time/show_time.c
+
+### 地区
+
+#### 地区定义
+
+地区信息维护于/usr/share/local之下的目录
+
+命名约定为 language[_territory[.codeeset]] [@modifier]，例如de_DE.utf-8@euro
+
+命令locale -a将列出系统上定义的整套地区
+
+#### 为程序设置地区
+
+```c
+#include <locale.h>
+char *setlocale(int category,const char *locale);
+```
+
+函数 setlocale()既可设置也可查询程序的当前地区。
+
+category 参数选择设置或查询地区的哪一部分，更多使用LC_ALL来指定设置地区的所有部分的值
+
+locale 参数可能是一个字符串，指定系统上已定义的一个地区如 de_DE 或 en_US，空字符串从环境变量获取设置。
+
+如果只需要查看地区设置不改变它，可以指定locale参数为NULL。
+
+例如setlocale(LC_ALL," ");
+
+### 更新系统时钟
+
+这些接口很少被应用程序使用。
+
+```c
+#define _BSD_SOURCE
+#include <sys/time.h>
+int settimeofday(const struct timeval *tv,const struct timezone *tz);
+```
+
+tz以及被废弃，指定为NULL
+
+```c
+#define _BSD_SOURCE
+#include <sys/time.h>
+int adjtime(struct timeval *delta,struct timeval *olddelta);
+```
+
+当对时间做微小调整时（几秒钟误差），通常是推荐使用库函数 adjtime()， 它将系统时钟逐步调整到正确的时间。
+
+delta 参数指向一个 timeval 结构体，指定需要改变时间的秒和微秒数。如果这个值是正数，那么每秒系统时间都会额外拨快一点点，直到增加完所需的时间。如果 delta 值为负时，时钟以类似的方式减慢。
+
+### 软件时钟（jiffies）
+
+系统软件时钟，根据时钟频率不同，对应的jiffy也不同。
+
+### 进程时间
+
+- 用户CPU时间：在用户模式下执行所花费的时间数量，又称作虚拟时间。
+- 系统CPU时间：是在内核模式中执行所花费的时间数量。内核执行系统调用的时间。
+
+进程时间是指处理过程中所消耗的总 CPU 时间
+
+```c
+#include <sys/time.h>
+clock_t times(struct tms *buf);
+```
+
+系统调用 times()，检索进程时间信息，并把结果通过 buf 指向的结构体返回。
+
+buf指向的结构体
+
+```c
+struct tms{
+	clock_t tms_utime;	/* User CPU time used by caller */
+	clock_t tms_stime;	/* System CPU time used by caller */
+	clock_t tms_cutime;	/* User CPu time of all (waited for) children */
+	clock_T tms_cstime;	/* System CPU time of all (wait for) children */
+}
+```
+
+tms 结构体的前两个字段返回调用进程到目前为止使用的用户和系统组件的 CPU 时间。 最后两个字段返回的信息是：父进程（比如，times()的调用者）执行了系统调用 wait()的所有已经终止的子进程使用的 CPU 时间。
+
+```c
+#include <time.h>
+clock_t clock(void);
+```
+
+它返回一个值描述了调用进程使 用的总的 CPU 时间（包括用户和系统）。
+
+> 获取进程 CPU 时间 time/process_time.c
+
+## Chapter11 系统限制和选项
+
+### 系统限制
+
+最小值定义为<limits.h>文件中的常量，其命名则冠以字符串\_POSIX\_，而且 （通常）还包含字符串\_MAX，因此，常量命名形如_POSIX_XXX_MAX
+
+每个限制都有一个名称，与上述最小值的名称相对应，但缺少了_POSIX_前缀。某个实现可以在文件中以该名称定义一个常量，用以表示该实现的相应限制。若已然定义， 则该限制值总是至少等同于前述最大值（即 XXX_MAX >= _POSIX_XXX_MAX）。
+
+#### 运行时恒定值
+
+所谓运行时恒定值是指某一限制，若已然在文件中定义，则对于实现而言固定不变。然而该值可能是不确定的（因为该值可能依赖于可用的内存空间），因而在文 件中会忽略对其定义。在这种情况下（即使在文件中已然定义了该限制），应用程序 可以使用 sysconf()来获取运行时的值。
+
+获取消息队列优先级限制：`lim = sysconf(_SC_MQ_PRIO_MAX);`
+
+#### 路径变量值
+
+在限制可能因路径名而发生变化的情况下，应用程序可以使用 pathconf()或 fpathconf()来获取该值。
+
+NAME_MAX 限制是路径名变量值的例子之一。此限制定义了在一个特定文件系统中文件名的最大长度。
+
+获取指定路径最大文件名长度：`lim = pathconf(directory_path,_PC_NAME_MAX);`
+
+#### 运行时可增加值
+
+运行时可增加值是指某一限制，相对于特定实现其值固定，且运行此实现的所有系统至少都应支持这一最小值。然而，特定系统在运行时可能会增加该值，应用程序可以使用 sysconf() 来获得系统所支持的实际值。
+
+#### 限制总结
+
+![image-20230317095431864](./Linux开发.assets/image-20230317095431864.png)
+
+#### 在shell中获取限制：getconf
+
+getconf variable-name [pathname]
+
+### 在运行时获取系统限制
+
+```c
+#include <unistd.h>
+long sysconf(int name);
+```
+
+参数 name 应为定义于文件中的_SC_系列常量之一，返回值为限制值。
+
+当函数无法确定限制或者发生错误时都会返回-1，所以区分上述两种情况需要在调用函数前将errno置为0。若调用后errno不为0，则发生了错误。
+
+> 使用sysconf()函数 syslim/t_sysconf.c
+
+### 运行时获取与文件相关的限制
+
+```c
+#include <unistd.h>
+long pathconf(const char *pathname,int name);
+long fpathconf(int fd,int name);
+```
+
+pathconf()和 fpathconf()之间唯一的区别在于对文件或目录的指定方式。pathconf()采用路径名方式来指定，而 fpathconf()则使用（之前已经打开的）文件描述符。
+
+> 使用 fpathconf()函数 syslim/t_fpathconf.c
+
+## Chapter12 系统和进程信息
+
+### /proc文件系统
+
+许多现代 UNIX 实现提供了一个/proc 虚拟文 件系统。该文件系统驻留于/proc 目录中，包含了各种用于展示内核信息的文件，并且允许进 程通过常规文件 I/O 系统调用来方便地读取，有时还可以修改这些信息。
+
+#### 获取与进程有关的信息：/proc/PID
+
+在此目录中的各种文件和子目录包含了进程的相关信息。
+
+通过查看/proc/1 目录下的文件，可以获取 init 进程的信息，该进程的 ID 总是为 1。
+
+#### 线程：/proc/PID/task 目录
+
+因为线程组中的一些属性对于线程而言是唯一的，所以 Linux 2.4 在/proc/PID 目录下增加了一个 task 子目录。针对进程中的每个线程，内核提供了以/proc/PID/task/TID 命名的子目录，其中 TID 是该线程的线程 ID。
+
+#### /proc目录下的系统信息
+
+![image-20230318142504906](./Linux开发.assets/image-20230318142504906.png)
+
+#### 访问/proc文件
+
+shell命令
+
+```shell
+echo 100000 > /proc/sys/kernel/pid.max
+cat /proc/sys/kernel/pid.max
+100000
+```
+
+#### 访问/proc/PID目录中的文件
+
+> 访问/proc/sys/kernel/pid_max 文件 sysinfo/procfs_pidmax.c
+
+**%.*s 用途**
+
+在printf中使用,\*表示用后面的形参替代\*的位置，实现动态格式输出。
+
+例如：
+printf("%*s", 10, s);
+//意思是输出字符串s，但至少占10个位置，不足的在字符串s左边补空格，这里等同于printf("%10s", s);
+
+### 系统标识：uname()
+
+```c
+#include <sys/utsname.h>
+int uname(struct utsname *utsbuf);
+```
+
+uname()系统调用返回了一系列关于主机系统的标识信息，存储于 utsbuf 所指向的结构中。
+
+utsbuf 参数是一个指向 utsname 结构的指针，其定义如下:
+
+```c
+struct utsname
+{
+    /* Name of the implementation of the operating system.  */
+    char sysname[_UTSNAME_SYSNAME_LENGTH];
+
+    /* Name of this node on the network.  */
+    char nodename[_UTSNAME_NODENAME_LENGTH];
+
+    /* Current release level of this implementation.  */
+    char release[_UTSNAME_RELEASE_LENGTH];
+    /* Current version level of this release.  */
+    char version[_UTSNAME_VERSION_LENGTH];
+
+    /* Name of the hardware type the system is running on.  */
+    char machine[_UTSNAME_MACHINE_LENGTH];
+    
+    /* Name of the domain of this node on the network.  */
+# ifdef __GNU_SOURCE
+    char domainname[_UTSNAME_DOMAIN_LENGTH];
+};
+```
+
+> 使用 uname() sysinfo/t_uname.c
+
+## Chapter13 文件I/O缓冲
+
+### 文件I/O的内核缓冲
+
+read()和write()系统调用在操作磁盘文件时不会直接发起磁盘访问，而是仅仅在用户空间 缓冲区与内核缓冲区高速缓存（kernel buffer cache）之间复制数据。
+
+写入时，先写入缓冲区，在后续的某个时刻写入磁盘。读取时，内核会读取到内核缓冲区，直到缓冲区读取完，再将文件下一段读入缓冲区。
+
+#### 缓冲区大小对 I/O 系统调用性能的影响
+
+如果与文件发生大量的数据传输，通过采用大块空间缓冲数据，以及执行更少的系统调用，可以极大地提高 I/O 性能。
+
+采用大缓冲区时的耗时绝大部 分花在了对磁盘的读取上。
+
+若强制在数据传输到磁盘前阻塞输出操作，则调用 write()所需的时间会显著上升。
+
+### stdio库的缓冲
+
+当操作磁盘文件时，缓冲大块数据以减少系统调用，C 语言函数库的 I/O 函数（比如， fprintf()、fscanf()、fgets()、fputs()、fputc()、fgetc()）正是这么做的。
+
+#### 设置一个 stdio 流的缓冲模式
+
+```c
+#include <stdio.h>
+int setvbuf(FILE *stream,char *buf,int mode,size_t size);
+```
+
+setvbuf()出错返回非0值。
+
+**参数 stream** 标识将要修改哪个文件流的缓冲。打开流后，必须在调用任何其他 stdio 函数之前先调用 setvbuf()。setvbuf()调用将影响后续在指定流上进行的所有 stdio 操作。
+
+**参数buf**：
+
+- 如果参数 buf 不为 NULL，那么其指向 size 大小的内存块以作为 stream 的缓冲区。因 为 stdio 库将要使用 buf 指向的缓冲区，所以应该以动态或静态在堆中为该缓冲区分配 一块空间(使用 malloc()或类似函数)，而不应是分配在栈上的函数本地变量。否则，函 数返回时将销毁其栈帧，从而导致混乱。
+- 若 buf 为 NULL，那么 stdio 库会为 stream 自动分配一个缓冲区（除非选择非缓冲的 I/O，如下所述）。SUSv3 允许，但不强制要求库实现使用 size 来确定其缓冲区的大小。 glibc 实现会在该场景下忽略 size 参数。
+
+**参数mode**：
+
+- _IONBF 不缓冲，stdio库函数直接调用write()或者 read()。
+- _IOLBF 行缓冲，对于输出流，在输出一个换行符 （除非缓冲区已经填满）前将缓冲数据。对于输入流，每次读取一行数据。
+- _IOFBF 全缓冲，单次读、写数据（通过 read()或 write()系统调用）的大小与缓冲区相同。 指代磁盘的流默认采用此模式。
+
+```c
+#include <stdio.h>
+void setbuf(FILE *stream,char *buf);
+```
+
+setbuf(fp,buf)调用除了不返回函数结果外，就相当于：
+
+`setvbuf(fp,buf,(buf != NULL)?_IOFBF:_IONBF,BUFSIZ);`
+
+要么将参数 buf 指定为 NULL 以表示无缓冲，要么指向由调用者分配的 BUFSIZ 个字节大小的缓冲区。
+
+(BUFSIZ位于<stdio.h>中，通常数值为8192)
+
+```c
+#define _BSD_SOURCE
+#include <stdio.h>
+void setbuffer(FILE *stream,char *buf,size_t size);
+```
+
+对 setbuffer(fp,buf,size)的调用相当于如下调用：
+
+`setvbuf(fp,buf,(buf != NULL)?_IOFBF:_IONBF,size);`
+
+#### 刷新stdio缓冲区
+
+```c
+#include <stdio.h>
+int fflush(FILE *stream);
+```
+
+无论当前采用何种缓冲区模式，在任何时候，都可以使用 fflush()库函数强制将 stdio 输出流中的数据（即通过 write()）刷新到内核缓冲区中。此函数会刷新指定 stream 的输出缓冲区。
+
+若参数 stream 为 NULL，则 fflush()将刷新所有的 stdio 缓冲区。
+
+### 控制文件I/O的内核缓冲
+
+SUSv3 定义的第一种同步 I/O 完成类型是 synchronized I/O data integrity completion，旨在确保针对文件的一次更新传递了足够的信息（到磁盘），以便于之后对数据的获取。
+
+Synchronized I/O file integrity completion 是 SUSv3 定义的另一种同步 I/O 完成，也是上述 synchronized I/O data integrity completion 的超集。该 I/O 完成模式的区别在于在对文件的一次 更新过程中，要将所有发生更新的文件元数据都传递到磁盘上，即使有些在后续对文件数据 的读操作中并不需要。
+
+#### 用于控制文件 I/O 内核缓冲的系统调用
+
+```c
+#include <unistd.h>
+int fsync(int fd);
+```
+
+fsync()系统调用将使缓冲数据和与打开文件描述符 fd 相关的所有元数据都刷新到磁盘 上。调用 fsync()会强制使文件处于 Synchronized I/O file integrity completion 状态。
+
+```c
+#include <unistd.h>
+int fdatasync(int fd);
+```
+
+fdatasync()系统调用的运作类似于 fsync()，只是强制文件处于 synchronized I/O data  integrity completion 的状态。
+
+fdatasync()可能会减少对磁盘操作的次数，由 fsync()调用请求的两次变为一次。例如，若修改了文件数据，而文件大小不变，那么调用 fdatasync()只强制进行了数据更新。（前面已然述及，针对 synchronized I/O data completion 状态，如果是诸如最近修改时间戳之类的元数据属性发生了变化，那么是无需传递到磁盘的。）相比之下，fsync()调用会强制将元数据传递到磁盘上。
+
+```c
+#include <unistd.h>
+void sync(void);
+```
+
+sync()系统调用会使包含更新文件信息的所有内核缓冲区（即数据块、指针块、元数据等）刷新到磁盘上
+
+#### 使所有写入同步：O_SYNC
+
+为open函数中的标志，则会使所有后续输出同步。每个 write()调用会自动将文件数据和元数据刷新到磁盘上（即，按照 Synchronized I/O file integrity completion 的要求执行写操作）
+
+#### O_SYNC 对性能的影响
+
+采用 O_SYNC 标志（或者频繁调用 fsync()、fdatasync()或 sync()）对性能的影响极大。
+
+### 就 I/O 模式向内核提出建议
+
+```c
+#define _XOPEN_SOURCE 600
+#include <fcntl.h>
+int posix_fadvise(int fd,off_t offset,off_t len,int advice);
+```
+
+posix_fadvise()系统调用允许进程就自身访问文件数据时可能采取的模式通知内核。
+
+参数 fd 所指为一文件描述符，调用期望通知内核进程对 fd 指代文件的访问模式。
+
+参数 offset 和 len 确定了建议所适用的文件区域。offset 指定了区域起始的偏移量，len 指定了区域 的大小（以字节数为单位）。len 为 0 表示从 offset 开始，直至文件结尾。
+
+参数advice：
+
+- POSIX_FADV_NORMAL 默认行为
+- POSIX_FADV_SEQUENTIAL 进程预计会从低偏移量到高偏移量顺序读取数据。在 Linux 中，该操作将文件预读窗口大 小置为默认值的两倍。
+- POSIX_FADV_RANDOM 进程预计以随机顺序访问数据。在 Linux 中，该选项会禁用文件预读。
+- POSIX_FADV_WILLNEED 进程预计会在不久的将来访问指定的文件区域。内核将由 offset 和 len 指定区域的文件数 据预先填充到缓冲区高速缓存中。
+- POSIX_FADV_DONTNEED 进程预计在不久的将来将不会访问指定的文件区域。这一操作给内核的建议是释放相关的 高速缓存页面
+- POSIX_FADV_NOREUSE 进程预计会一次性地访问指定文件区域，不再复用。在 Linux 中，该操作目前不起作用。
+
+### 绕过缓冲区高速缓存：直接 I/O 
+
+可针对一个单独文件或块设备（比如，一块磁盘）执行直接 I/O。要做到这点，需要在调用 open()打开文件或设备时指定 O_DIRECT 标志。
+
+#### 直接 I/O 的对齐限制
+
+遵守限制：
+
+- 用于传递数据的缓冲区，其内存边界必须对齐为块大小的整数倍。
+- 数据传输的开始点，亦即文件和设备的偏移量，必须是块大小的整数倍。
+- 待传递数据的长度必须是块大小的整数倍。
+
+> 使用 O_DIRECT 跳过缓冲区高速缓存 filebuff/direct_read.c
+
+### 混合使用库函数和系统调用进行文件 I/O
+
+```c
+#include <stdio.h>
+int fileno(FILE *stream);
+FILE *fdopen(int fd,const char *mode);
+```
+
+给定一个（文件）流，fileno()函数将返回相应的文件描述符（即 stdio 库在该流上已经打开的文件描述符）。随即可以在诸如 read()、write()、dup()和 fcntl()之类的 I/O 系统调用中正常使用该文件描述符。
+
+fdopen()函数与 fileno()函数的功能相反。给定一个文件描述符，该函数将创建了一个使用该描述符进行文件 I/O 的相应流。mode 参数与 fopen()函数中 mode 参数含义相同。例如，r 为读，w 为写，a 为追加。若该参数与文件描述符 fd 的访问模式不一致，则对 fdopen()的调用将失败。

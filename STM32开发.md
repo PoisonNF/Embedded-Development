@@ -16,6 +16,12 @@
 
 > [(4条消息) STM32下载程序时提示“active write protected stm32 device detected this could”_qq_888192的博客-CSDN博客](https://blog.csdn.net/qq_34447192/article/details/100582441)
 
+## Keil仿真
+
+[keil调试串口的软件仿真方法_keil仿真串口_位文杰TOP的博客-CSDN博客](https://blog.csdn.net/qq_36958104/article/details/111815571)
+
+[如何使用Keil5中的虚拟示波器进行软件仿真_kile5示波器添加点_王开心.的博客-CSDN博客](https://blog.csdn.net/weixin_43737995/article/details/98049869)
+
 ***
 
 ## STM32CubeIDE可能遇到的问题
