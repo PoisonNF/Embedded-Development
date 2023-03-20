@@ -18,9 +18,21 @@
 
 ## Keil仿真
 
-[keil调试串口的软件仿真方法_keil仿真串口_位文杰TOP的博客-CSDN博客](https://blog.csdn.net/qq_36958104/article/details/111815571)
+首先是调试设置，关注左下角的CPU DLL和DialogDLL，按照图片所示设置即可，参数设置根据芯片更改，例如我这里使用的是STM32F103VE系列。 
 
-[如何使用Keil5中的虚拟示波器进行软件仿真_kile5示波器添加点_王开心.的博客-CSDN博客](https://blog.csdn.net/weixin_43737995/article/details/98049869)
+![image-20230319220822405](./STM32开发.assets/image-20230319220822405.png)
+
+### 使用模拟器仿真串口
+
+1. 使用VSPD创建并连接两个串口，一般为COM2和COM3。这里假设COM2关联单片机，COM3关联串口助手
+2. 进入Keil的Debug模式，在左下角的命令行内输入`MODE COM2 115200,0,8,1`
+3. 再输入`ASSIGN COM2 <S1IN> SIOUT` 完成绑定操作，此时单片机串口数据将会在串口助手中显示
+
+> [keil调试串口的软件仿真方法_keil仿真串口_位文杰TOP的博客-CSDN博客](https://blog.csdn.net/qq_36958104/article/details/111815571)
+
+### 使用模拟器中的示波器
+
+> [如何使用Keil5中的虚拟示波器进行软件仿真_kile5示波器添加点_王开心.的博客-CSDN博客](https://blog.csdn.net/weixin_43737995/article/details/98049869)
 
 ***
 

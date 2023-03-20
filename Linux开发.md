@@ -1406,3 +1406,517 @@ FILE *fdopen(int fd,const char *mode);
 给定一个（文件）流，fileno()函数将返回相应的文件描述符（即 stdio 库在该流上已经打开的文件描述符）。随即可以在诸如 read()、write()、dup()和 fcntl()之类的 I/O 系统调用中正常使用该文件描述符。
 
 fdopen()函数与 fileno()函数的功能相反。给定一个文件描述符，该函数将创建了一个使用该描述符进行文件 I/O 的相应流。mode 参数与 fopen()函数中 mode 参数含义相同。例如，r 为读，w 为写，a 为追加。若该参数与文件描述符 fd 的访问模式不一致，则对 fdopen()的调用将失败。
+
+## Chapter14 系统编程概念
+
+### 设备专用文件
+
+设备专用文件与系统的某个设备相对应。
+
+由设备驱动程序提供的 API 是固定的，包含的操作对应于系统调用 open()、close()、read()、write()、mmap()以及 ioctl()。
+
+设备划分为以下两种类型：
+
+- **字符型设备**基于每个字符来处理数据。终端和键盘都属于字符型设备。
+- **块设备**则每次处理一块数据。块的大小取决于设备类型，但通常为 512 字节的倍数。 磁盘和磁带设备都属于块设备。
+
+#### 设备ID
+
+每个设备文件都有主、辅 ID 号各一。主 ID 号标识一般的设备等级，内核会使用主 ID 号 查找与该类设备相应的驱动程序。辅 ID 号能够在一般等级中唯一标识特定设备。命令 ls –l 可显示出设备文件的主、辅 ID。
+
+Linux2.6主ID12位 辅ID20位
+
+### 磁盘与分区
+
+#### 磁盘驱动器
+
+磁盘表面信息物理上存储于称为磁道（track）的一组同心圆上。磁道自身又被划分为若干扇区，每个扇区则包含一系列物理块。物理块的容量一般为 512 字节（或 512 的倍数），代表了驱动器可 读/写的最小信息单元。
+
+#### 磁盘分区
+
+系统管理员可使用 fdisk 命令来决定磁盘分区的编号、大小和类型。命令 fdisk –l 会列 出磁盘上的所有分区。Linux 专有文件/proc/partitions 记录了系统中每个磁盘分区的主辅设 备编号、大小和名称。
+
+### 文件系统
+
+文件系统是对常规文件和目录的组织集合。用于创建文件系统的命令是 mkfs。
+Linux 的强项之一便是支持种类繁多的文件系统。
+
+#### ext2文件系统
+
+ext2（扩展文件系统二世）是 Linux 上使用最为广泛的文件系统，也是原始 Linux 文件系统——ext 的继任者。
+
+#### 文件系统结构
+
+![image-20230319161203563](./Linux开发.assets/image-20230319161203563.png)
+
+### i节点
+
+i节点维护的信息
+
+- 文件类型
+- 文件属主
+- 文件属组
+- 3 类用户的访问权限：属主、属组以及其他用户
+- 3 个时间戳：对文件的最后访问时间、对文件的最后修改时间、以及文件状态的最后改变时间
+- 指向文件的硬链接数量
+- 文件的大小，以字节为单位
+- 实际分配给文件的块数量，以 512 字节块为单位
+- 指向文件数据块的指针
+
+#### ext2的i节点和数据块指针
+
+![image-20230319162724440](./Linux开发.assets/image-20230319162724440.png)
+
+在 ext2 中，每个 i 节点包含 15 个指针。其中的前 12 个指针（图 14-2 中编号为 0～11 的 指针）指向文件前 12 个块在文件系统中的位置。接下来，是一个指向指针块的指针，提供了 文件的第 13 个以及后续数据块的位置。指针块中指针的数量取决于文件系统中块的大小。每个指针需占用 4 字节，因此指针的数量可能在 256（块容量为 1024 字节）～1024（块容量为 4096 字节）之间。这样就考虑了大型文件的情况。即便是对于巨型文件，第 14 个指针（图中 编号为 13）是一个双重间接指针—指向指针块，其块中指针进而指向指针块，此块中指针 最终才指向文件的数据块。只要有体量巨大的文件，就会随之产生更深一层的递进：图中 i 节点的最后一个指针属于三重间接指针。
+
+### 虚拟文件系统
+
+虚拟文件系统 （VFS，有时也称为虚拟文件交换）是一种内核特性，通过为文件系统操作创建抽象层来解决上述问题。
+
+VFS 接口的操作与涉及文件系统和目录的所有常规系统调用相对应，这些系统调用有 open()、read()、write()、lseek()、close()、truncate()、stat()、mount()、umount()、mmap()、mkdir()、 link()、unlink()、symlink()以及 rename()。
+
+### 日志文件系统
+
+ext2文件系统在崩溃后，为确保文件系统的完整性，重启时必须对文件系统的一致性进行检查。
+
+日志文件系统最为昭著的臭名在于增加了文件更新的时间，当然，良好的设计可以降低这方面的开销。
+
+### 单根目录层级和挂载点
+
+Linux 上所有文件系统中的文件都位于单根目录树下，树根就是根目录“/”。其他的文件系统都挂载在根目录之下，被视为整个目录层级的子树（subtree）。
+
+不带任何参数来执行 mount 命令，可以列出当前已挂载的文件系统。
+
+挂载点实际上是Linux中磁盘文件系统的入口目录，类似Windows中的C:D:E:盘符。
+
+### 文件系统的挂载和卸载
+
+系统调用 mount()和 umount()运行特权级进程(CAP_SYS_ADMIN)以挂载或卸载文件系统。
+
+- Linux 专有的虚拟文件/proc/mounts，可查看当前已挂载文件系统的列表。 /proc/mounts 是内核数据结构的接口，因此总是包含已挂载文件系统的精确信息。
+- /etc/mtab 文件内容与/proc/mounts类似，但是系统调用不会更新该文件，所以该文件并不是很准确。
+- /etc/fstab包含了对系统支持的所有文件系统的描述，可供系统调用使用。
+
+`/dev/sda9 /boot ext3 rw 0 0`
+
+这条记录包含6个字段：
+
+1. 已挂载设备名
+2. 设备的挂载点
+3. 文件系统类型
+4. 挂载标志。上例的 rw 表示以可读写方式挂载文件系统
+5. 一个数字，dump(8)会使用其来控制对文件系统的备份操作。只有/etc/fstab 文件才会用到该字段和第 6 个字段，在/proc/mounts 和/etc/mtab 中，该字段总是为 0
+6. 一个数字，在系统引导时，用于控制 fsck(8)对文件系统的检查顺序。 getfsent(3)和 getmntent(3)手册页记录了用于从上述文件中读取记录的函数
+
+#### 挂载文件系统：mount()
+
+```c
+#include <sys/mount.h>
+int mount(const char *source,const char *targe,const char *fstype,unsigned long mountflags,const void *data);
+```
+
+mount()系统调用将由 参数source 指定设备所包含的文件系统，挂载到由 参数target 指定的目录下。
+
+参数 fstype 是一字符串，用来标识设备所含文件系统的类型，比如，ext4 或 btrfs。
+
+参数 mountflags 为一位掩码，可选标志如下
+
+![image-20230319215628840](./Linux开发.assets/image-20230319215628840.png)
+
+![image-20230319215733527](./Linux开发.assets/image-20230319215733527.png)
+
+mount()的最后一个参数 data 是一个指向信息缓冲区的指针，对其信息的解释则取决于文件系统。
+
+> 使用 mount() filesys/t_mount.c
+
+#### 卸载文件系统：umount()和umount2()
+
+```c
+#include <sys/mount.h>
+int umount(const char *target);
+```
+
+target 参数指定待卸载文件系统的挂载点。
+
+```c
+#include <sys/mount.h>
+int umount2(const char *target，int flags);
+```
+
+系统调用 umount2()是 umount()的扩展版。通过 flags 参数，umount2()可对卸载操作施以更精密的控制。
+
+flags参数查书P223页
+
+### 高级挂载特性
+
+#### 在多个挂载点挂载文件系统
+
+将一 个文件系统挂载于文件系统内的多个位置，其中一个挂载点下的目录子树发生改变，在其他挂载点下也会随之改变。
+
+#### 基于每次挂载的挂载标志
+
+文件系统和挂载点不再是一一对应，每次挂载都可以设置不同的标志。
+
+#### 绑定挂载
+
+绑定挂载（由使用 MS_BIND 标志的 mount() 调用来创建）是指在文件系统目录层级的另一处挂载目录或文件。这将导致文件或目录在两处同时可见。绑定挂载有些类似于硬链接，但存在两个方面的差异。
+
+应用场景之一创建监禁区
+
+#### 递归绑定挂载
+
+采用 mount(8)命令所提供的--rbind 选项完成，套娃。
+
+### 虚拟内存文件系统：tmpfs
+
+tmpfs 文件系统是一个 Linux 内核的可选组件，通过 CONFIG_TMPFS 选项加以配置。
+
+创建一 tmpfs 文件系统并将其挂载至/tmp
+
+```shell
+mount -t tmpfs nuwtmp /tmp
+cat /proc/mounts | grep tmp
+```
+
+### 获得与文件系统有关的信息：statvfs()
+
+```c
+#include <sys/statvfs.h>
+int statvfs(const char *pathname,struct statvfs *statvfsbuf);
+int fstatvfs(int fd,struct statvfs *statvfsbuf);
+```
+
+两者之间唯一的区别在于其标识文件系统的方式。statvfs()需使用 pathname 来指定文件系统中任一文件的名称。而 fstatvfs()则需使用打开文件描述符 fd，来指代文件系统中的任一文件。二者均返回一个 statvfs 结构，属于由 statvfsbuf 所指向的缓冲区，其中包含了关乎文件系统的信息。statvfs 结构的形式如下：
+
+```c
+struct statvfs
+  {
+    unsigned long int f_bsize;
+    unsigned long int f_frsize;
+#ifndef __USE_FILE_OFFSET64
+    __fsblkcnt_t f_blocks;
+    __fsblkcnt_t f_bfree;
+    __fsblkcnt_t f_bavail;
+    __fsfilcnt_t f_files;
+    __fsfilcnt_t f_ffree;
+    __fsfilcnt_t f_favail;
+#else
+    __fsblkcnt64_t f_blocks;
+    __fsblkcnt64_t f_bfree;
+    __fsblkcnt64_t f_bavail;
+    __fsfilcnt64_t f_files;
+    __fsfilcnt64_t f_ffree;
+    __fsfilcnt64_t f_favail;
+#endif
+    unsigned long int f_fsid;
+#ifdef _STATVFSBUF_F_UNUSED
+    int __f_unused;
+#endif
+    unsigned long int f_flag;
+    unsigned long int f_namemax;
+    int __f_spare[6];
+  };
+```
+
+## Chapter15 文件属性
+
+### 获取文件信息
+
+```c
+#include <sys/stat.h>
+int stat(const char *pathname,struct stat *stabuf);
+int lstat(const char *pathname,struct stat *stabuf);
+int fstat(int fd,struct stat *statbuf);
+```
+
+三个调用的区别：
+
+- stat()会返回所命名文件的相关信息
+- lstat()与 stat()类似，区别在于如果文件属于符号链接，那么所返回的信息针对的是符号链接自身（而非符号链接所指向的文件）
+- fstat()则会返回由某个打开文件描述符所指代文件的相关信息
+
+返回结构体为
+
+```c
+struct stat{
+	__dev_t st_dev;		/* Device.  */
+	__ino_t st_ino;		/* File serial number.	*/
+	__nlink_t st_nlink;		/* Link count.  */
+    __mode_t st_mode;		/* File mode.  */
+    __uid_t st_uid;		/* User ID of the file's owner.	*/
+    __gid_t st_gid;		/* Group ID of the file's group.*/
+    __dev_t st_rdev;		/* Device number, if device.  */
+    __off_t st_size;			/* Size of file, in bytes.  */
+    __blksize_t st_blksize;	/* Optimal block size for I/O.  */
+    __blkcnt_t st_blocks;		/* Number 512-byte blocks allocated. */
+    __time_t st_atime;			/* Time of last access.  */
+    __time_t st_mtime;			/* Time of last modification.  */
+    __time_t st_ctime;			/* Time of last status change.  */
+};
+```
+
+#### 设备ID和i节点号
+
+dev_t记录了设备的主、辅ID
+
+如果是设备的i节点，st_rdev包含设备的主、辅ID
+
+利用宏 major()和 minor()，可提取 dev_t 值的主、辅 ID。获取对两个宏声明的头文件则随 UNIX 实现而各异。在 Linux 系统上，若定义了~~_BSD_SOURCE~~ _DEFAULT_SOURCE宏，则两个宏定义于中。需要#include <sys/sysmacros.h>
+
+#### 文件所有权
+
+st_uid 和 st_gid 字段分别标识文件的属主（用户 ID）和属组（组 ID）
+
+#### 链接数
+
+st_nlink 字段包含了指向文件的（硬）链接数。
+
+#### 文件类型及权限
+
+st_mode 字段内含有位掩码（高4位为文件类型，低12位为权限），与常量 S_IFMT 相与（&），可从该字段中析取文件类型。
+
+```c
+if((statbuf.st_mode & S_IFMT) == S_IfREG)
+	prinf("regular file\n");
+```
+
+![image-20230321105445673](./Linux开发.assets/image-20230321105445673.png)
+
+#### 文件大小、已分配块以及最优 I/O 块大小
+
+- 对于常规文件，st_size 字段表示文件的字节数。对于符号链接，则表示链接所指路径名的长度，以字节为单位。对于共享内存对象，该字段则表示对象的大小。
+- st_blocks 字段表示分配给文件的总块数，块大小为 512 字节。
+- st_blksize 字段针对文件系统上文件进行 I/O 操作时的最优块大小，若 I/O 所采用的块大小小于 该值，则被视为低效。一般而言，st_blksize 的返回值为 4096。
+
+#### 文件时间戳字段
+
+st_atime、st_mtime 和 st_ctime 字段，分别记录了对文件的上次访问时间、上次修改时间， 以及文件状态发生改变的上次时间。
+
+> 获取并解释文件的 stat 信息 files/t_stat.c 
+
+### 文件时间戳
+
+#### 纳秒时间戳
+
+对于 stat 结构所含的 3 个时间戳字段，Linux 从 2.6 版本将其精度提升至纳秒级。纳秒级分辨率将提高某些程序的精度，因为此类程序需要根据文件时间戳的先后顺序来作决定。
+
+#### 使用utime()和utimes()改变时间戳
+
+```c
+#include <utime.h>
+int utime(const char *pathname,const struct utimbuf *buf);
+```
+
+参数 pathname 用来标识欲修改时间的文件。若该参数为符号链接，则会进一步解除引用。 参数 buf 既可为 NULL，也可为指向 utimbuf 结构的指针。
+
+```c
+struct utimbuf{
+	time_t actime;	/* Access time */
+	time_T modtime;	/* Modification time */
+};
+```
+
+- 参数buf为NULL时，那么会将文件的上次访问和修改时间同时置为当前时间。
+- 参数buf为指向utimbuf的指针时，则会使用该结构的相应字段去更新文件的上次访问和修改时间。
+
+```c
+#include <sys/time.h>
+int utimes(const char *pathname,const struct timeval tv[2]);
+```
+
+utime()与 utimes()之间最显著的差别在于后者可以以==微秒==级精度来指定时间值。
+
+新的文件访问时间在 tv[0]中指定，新的文件修改时间在 tv[1]中指定。
+
+```c
+#include <Sys/time.h>
+int futimes(int fd,const struct timeval tv[2]);
+int lutimes(const char *pathname,const struct timeval tv[2]);
+```
+
+这两个函数功能与utimes()相同，但是也有些许差异。
+
+调用 futimes()时，使用打开文件描述符 fd 来指定文件。
+
+调用 lutimes()时，使用路径名来指定文件，有别于调用 utimes()的是：对于 lutimes()，若路径名指向一符号链接，则调用不会对该链接进行解引用，而是更改链接自身的时间戳。
+
+#### 使用utimensat()和futimens()改变文件时间戳
+
+优点：
+
+1. 可按纳秒级精度设置时间戳。
+2. 可以独立设置某一时间戳。
+3. 可以独立将任意时间戳置为当前时间。
+
+```c
+#define _XOPEN_SOURCE 700
+#include <sys/stat.h>
+int utimensat(int dirfd,const char *pathname,
+			const struct timespec times[2],int flags);
+```
+
+参数dirfd指定为 AT_FDCWD，此时对 pathname 参数的解读与 utimes()相类似。 或者，也可以将其指定为指代目录的文件描述符。
+
+参数flags：0或者 AT_SYMLINK_NOFOLLOW，意即当 pathname 为符号链接时， 不会对其解引用，只改变符号链接本身的时间戳。
+
+若将 times 指定为 NULL，则会将以上两个文件时间戳都更新为当前时间。若 times 值为 非 NULL，则会针对指定文件在 times[0]中放置新的上次访问时间，在 times[1]中放置新的上次修改时间。
+
+数组 times 所含的每一元素都是如下格式的一个结构：
+
+```c
+struct timespec{
+	time_t tv_sec;	/* seconds */
+	long   tv_nsec;	/* Nanoseconds */
+};
+```
+
+若有意将时间戳之一置为当前时间，则可将相应的 tv_nsec 字段指定为特殊值 UTIME_NOW。
+
+若希望某一时间戳保持不变，则需把相应的 tv_nsec 字段指定为特殊值 UTIME_OMIT。
+
+无论是上述哪一种情况，都将忽略相应 tv_sec 字段中的值。
+
+```c
+#include _GUN_SOURCE
+#include <sys/stat.h>
+int futimens(int fd,const struct timespec times[2]);
+```
+
+与utimensat()的不同之处在于使用的是文件描述符fd。
+
+### 文件属主
+
+#### 新建文件的属主
+
+文件创建时，其用户 ID“取自”进程的有效用户 ID。而新建文件的组 ID 则“取自”进程的有效组 ID。
+
+![image-20230323210346401](./Linux开发.assets/image-20230323210346401.png)
+
+![image-20230323210358693](./Linux开发.assets/image-20230323210358693.png)
+
+#### 改变文件属主：chown()、fchown()和lchowm()
+
+```c
+#include <unistd.h>
+int chown(const char *pathname,uid_t owner,gid_t group);
+
+#define _XOPEN_SOURCE 500
+#include <unistd.h>
+int lchown(const char *pathname,uid_t owner,gid_t group);
+int fchown(int fd,uid_t owner,gid_t group);
+```
+
+- chown()改变由 pathname 参数命名文件的所有权。
+- lchown()用途与 chown()相同，不同之处在于若参数 pathname 为一符号链接，则将会改变链接文件本身的所有权，而与该链接所指代的文件无干。
+- fchown()也会改变文件的所有权，只是文件由打开文件描述符 fd 所引用。
+
+若只想改变其中之一，只需将另一参数设置为-1。
+
+> 改变文件的属主和属组 files/t_chown.c
+
+### 文件权限
+
+#### 普通文件的权限
+
+stat 结构中 st_mod 字段的低 12 位定义了文件权限。
+
+其中的前 3 位为专用 位，分别是 set-user-ID 位、set-group-ID 位和 sticky 位。
+
+其余 9 位则构成了定义权限的掩码，分别授予访问文件的各 类用户。文件权限掩码分为 3 类。
+
+执行ls -l 命令可以查看文件的权限和所有权，下面进行举例：
+
+```shell
+ls -l myscript.sh
+-rwxr-x---		1 mtk	users	...
+```
+
+该字符串起始处的连接号“-”表明该文件属于普通文件。文件权限显示为“rwxr-x---”
+
+查看权限时，需将9位分成三组。
+
+- 第一组表示文件属主的权限，上述例子中为rwx，即表示为可读、可写、可执行都具备
+- 第二组表示属组的权限，上述例子中为r-x，即表示组内用户可读、可执行
+- 第三组表示其他用户的权限，上述例子中为---，即表示都没有权限
+
+#### 目录权限
+
+- 读权限：可列出（比如，通过 ls 命令）目录之下的内容（即目录下的文件名）。
+- 写权限：可在目录内创建、删除文件。注意，要删除文件，对文件本身无需有任何权限。
+- 可执行权限：可访问目录中的文件。因此，有时也将对目录的执行权限称为 search（搜 索）权限。
+
+#### 权限检查算法
+
+给定路径名称，内核会对文件权限进行检查，其次对路径上的目录进行检查，使用的是文件系统ID和组ID
+
+#### 检查特权级别进程的权限
+
+对于非目录文件，仅当该文件的 3 种权限类型（至少）之一具有可执行权限时，Linux 才会将该权限赋予一特权级进程。
+
+#### 检查对文件的访问权限：access()
+
+```c
+#include <unistd.h>
+int access(const char *pathname,int mode);
+```
+
+系统调用 access()就是根据进程的真实用户 ID 和组 ID（以及附属组 ID），去检查对 pathname 参数所指定文件的访问权限。
+
+若 pathname 为符号链接，access()将对其解引用。 参数 mode 是由表 15-5 中常量相或（|）而成的位掩码。若由 pathname 所指定的文件具备 mode 参数包含的所有权限，access()将返回 0；只要有一项权限未得到满足（或者有错误发生）， access()则返回−1。
+
+![image-20230323204146621](./Linux开发.assets/image-20230323204146621.png)
+
+<font color=red>Tips:</font>建议杜绝使用access()，因为调用access()与对同一文件的后续操作存在时间差，不能保证access()返回信息的准确性
+
+#### Set-User-ID、Set-Group-ID 和 Sticky 位
+
+set-group-ID 位还有两种其他用途：对于在以 nogrpid 选项装配的目录下所新建的文件，控制其群组从属关系；可用于强制锁定文件。
+
+sticky位的目的在于让常用程序的运行速度更快。
+
+若对某程序文件设置了 sticky 位，则首次执行程序时，系统会将其文本拷贝保存于交换区中，即“粘” （stick）在交换区内，故而能提高后续执行的加载速度。
+
+作用于目录时，sticky 权限位起限制删除位的作用。为目录设置该位，则表明仅当非特权进程具有对目录的写权限，且为文件或目录的属主时，才能对目录下的文件进行删除（unlink()、 rmdir()）和重命名（rename()）操作。（具有 CAP_FOWNER 能力的进程可省去对属主的检查。） 可藉此机制来创建为多个用户共享的一个目录，各个用户可在其下创建或删除属于自己的文 件，但不能删除隶属于其他用户的文件。为/tmp 目录设置 sticky 权限位，原因正在于此。
+
+可通过 chmod 命令(chmod +t file)或 chmod()系统调用来设置文件的 sticky 权限位。若对某文件设置了 sticky 权限位，则当执行 ls–l 命令显示该文件时，会在其他用户执行权限字段上看到字母 T，其大小写则要取决于是否对文件开启了其他用户执行权限位
+
+#### 进程的文件模式创建掩码：umask()
+
+umask 是一种进程属性，当进程新建文件或目录时，该属性用于指明应屏蔽哪些权限位。
+
+大多数 shell 的初始化文件会将 umask 默认置为八进制值 022 (----w--w-)。其含义为对于同组或其他用户，应总是屏蔽写权限。
+
+```c
+#include <sys/stat.h>
+mode_t umask(mode_t mask);
+```
+
+可以以八进制数或是表 15-4 中所列常量相或（|）来指定 mask 参数。
+
+> 使用 umask() files/t)umask.c
+
+#### 更改文件权限：chmod()和 fchmod() 
+
+```c
+#include <sys/stat.h>
+int chmod(const char *pathname,mode_t mode);
+
+#define _XOPEN_SOURCE 500		/* Or: #define _BSD_SOURCE */
+#include <sys/stat.h>
+int fchmod(int fd,mode_t mode);
+```
+
+系统调用 chmod()更改由 pathname 参数所指定文件的权限。若该参数所指为符号链接， 调用 chmod()会改变符号链接所指代文件的访问权限，而非对符号链接自身的访问权限。
+
+系统调用 fchmod()更改由打开文件描述符 fd 所指代文件的权限。
+
+参数mode从表15-4中得到
+
+### i节点标志（ext2 扩展文件属性）
+
+在程序中，可利用 ioctl()系统调用来获取并修改 i 节点标志。
+
+对普通文件或目录均可设置 i 节点标志。大多数 i 节点标志是供普通文件使用的，也有少部分兼供（或专供）目录使用。（定义于<linux/fs.h>中 ）
+
+![image-20230325144335287](./Linux开发.assets/image-20230325144335287.png)
+
