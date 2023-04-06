@@ -1920,3 +1920,594 @@ int fchmod(int fd,mode_t mode);
 
 ![image-20230325144335287](./Linux开发.assets/image-20230325144335287.png)
 
+## Chapter16 扩展属性
+
+### 概述
+
+扩展属性EA的命名格式为namespace.name
+
+namespace可用值为4个：
+
+1. user EA 将在文件权限检查的制约下由非特权级进程操控。
+2. trusted EA 也可由用户进程“驱使”，这点与 user EA 相似。而区别则在于，要操纵 trusted  EA，进程必须具有特权（CAP_SYS_ADMIN）
+3. system EA 供内核使用，将系统对象与一文件关联。目前仅支持访问控制列表
+4. security EA 的作用有二：其一，用来存储服务于操作系统安全模块的文件安全标签； 其二，将可执行文件与能力关联起来
+
+一个 i 节点可以拥有多个相关 EA，其所从属的命名空间可以相同，也可不同。在各命名空间内的 EA 名均自成一体。在 user 和 trusted 命名空间内，EA 名可以为任意字符串。而在 system 命名空间内，只有经内核明确认可的（例如，用于访问控制列表的）命名方可使用。
+
+#### 通过 shell 创建并查看 EA
+
+```shell
+bcl@bcl-virtual-machine:~/Desktop$ touch tfile
+bcl@bcl-virtual-machine:~/Desktop$ setfattr -n user.x -v "The past is not dead." tfile
+bcl@bcl-virtual-machine:~/Desktop$ getfattr -n user.x tfile
+# file: tfile
+user.x="The past is not dead."
+
+bcl@bcl-virtual-machine:~/Desktop$ getfattr -d tfile			#显示所有EA
+# file: tfile
+user.x="The past is not dead."
+
+bcl@bcl-virtual-machine:~/Desktop$ setfattr -n user.x tfile 	#清空user.x
+bcl@bcl-virtual-machine:~/Desktop$ getfattr -d tfile
+# file: tfile
+user.x=""
+
+bcl@bcl-virtual-machine:~/Desktop$ setfattr -x user.x tfile 	#删除user.x
+bcl@bcl-virtual-machine:~/Desktop$ getfattr -d tfile
+
+```
+
+### 扩展属性的实现细节
+
+user EA 只能施之于文件或目录，符号链接、设备文件、套接字及FIFO都不行
+
+#### EA 在实现方面的限制
+
+EA 名称的长度不能超过 255 个字节。EA 值的容量为 64KB。
+
+### 操控扩展属性的系统调用
+
+#### 创建和修改EA
+
+```c
+#include <sys/xattr.h>
+int setxattr(const char *pathname,const char *name,const void *value,
+			size_t size,int flags);
+int lsetxattr(const char *pathname,const char *name,const void *value,
+			size_t size,int flags);
+int fsetxattr(int fd,const char *name,const void *value,
+			size_t size,int flags);
+```
+
+setxattr()通过 pathname 来标识文件，若文件名为符号链接，则对其解引用。 
+
+lsetxattr()通过 pathname 来标识文件，但不会对符号链接解引用。 
+
+fsetxattr()则通过打开文件描述符 fd 来标识文件。
+
+参数 name 是一个以空字符结尾的字符串，定义了 EA 的名称。
+
+参数 value 是一个指向缓 冲区的指针，包含了为 EA 定义的新值。
+
+参数 size 则指明了缓冲区大小。
+
+参数flags 0为默认值，其他参数可选：1.XATTR_CREATE 若具有给定名称（name）的 EA 已经存在，则失败。2. XATTR_REPLACE 若具有给定名称（name）的 EA 不存在，则失败。
+
+#### 获取EA
+
+```c
+#include <sys/xattr.h>
+ssize_t getxattr(const char *pathname,const char *name,void *value,
+				size_t size);
+ssize_t lgetxattr(const char *pathname,const char *name,void *value,
+				size_t size);
+ssize_t fgetxattr(int fd,const char *name,void *value,
+				size_t size);
+```
+
+参数 name 是一个以空字符结尾的字符串，用来标识欲取值的 EA。返回的 EA 值保存于参数 value 所指向的缓冲区中。该缓冲区必须由调用者分配，其大小应在 size 中指定。若调用 成功，上述系统调用会返回复制到 value 所指缓冲区中的字节数。
+
+#### 删除EA
+
+```c
+#include <sys/xattr.h>
+int removeattr(const char *pathname,const char *name);
+int lremoveattr(const char *pathname,const char *name);
+int fremoveattr(int fd,const char *name);
+```
+
+name 所含以空字符结尾的字符串，用于标识打算删除的 EA。若试图删除不存在的 EA， 调用将失败，并会返回错误 ENODATA。
+
+#### 获取与文件相关联的所有 EA 的名称
+
+```c
+#include <sys/xattr.h>
+ssize_t listxattr(const char *pathname,char *list,size_t size);
+ssize_t llistxattr(const char *pathname,char *list,size_t size);
+ssize_t flistxattr(int fd,char *list,size_t size);
+```
+
+调用将 EA 的名称列表以一系列以空字符结尾的字符串形式置于 list 所指向的缓冲区中。缓冲区的大小由 size 指定。一旦成功，上述系统调用会返回复制到 list 中的字节数。
+
+> 显示文件的扩展属性 xattr/xattr_view.c
+
+## Chapter17 访问控制列表
+
+### 概述
+
+利用 ACL，可以在任意数量的用户和组之中，为单个用户或组指定文件权限。
+
+![image-20230325210123651](./Linux开发.assets/image-20230325210123651.png)
+
+只有标记类型为“ACL_USER”和“ACL_GROUP”的记录，才会采用标记限定符来指 定用户 ID 和组 ID。
+
+#### 最小 ACL 和扩展 ACL 
+
+最小化（minimal）ACL 语义上等同于传统的文件权限集合，恰好由 3 条记录组成。每条标记的类型分别为 ACL_USER_OBJ、ACL_GROUP_OBJ 以及 ACL_OTHER。
+
+扩展 ACL 则是指除此之外，还包含标记类型为 ACL_USER、ACL_GROUP 和 ACL_MASK 的记录。
+
+### ACL 的长、短文本格式
+
+长文本格式的 ACL：每行都包含一条 ACE，还可以包含注释，注释需以“#”开始， 直至行尾结束。getfacl 命令的输出会以长文本格式显示 ACL。getfacl 命令的-M acl-file 选项从指定文件中“提取”长文本格式的 ACL 定义。
+
+短文本格式的 ACL：包含一系列以“，”分隔的 ACE。
+
+举例对应传统权限掩码0650：
+
+```
+u::rw-,g::r-x,o::---
+u::rw,g::rx,o::-
+user::rw,group::rx,other::-
+```
+
+### getfacl 和 setfacl 命令
+
+在 shell 中运行 getfacl 命令，可查看到应用于文件的 ACL。
+
+新建文件具有最小的 ACL 权限。getfacl 命令会在输出 ACL 记录的文本格式之前，显示该文件的名称和属主、属组。执行 getfacl 命令时，如带有 --omit–header 选项，可省略上述内容。
+
+执行传统的 chmod 命令来改变文件访问权限时，其效果贯穿到文件的 ACL 上。
+
+```shell
+bcl@bcl-virtual-machine:~/Desktop$ rm tfile 
+bcl@bcl-virtual-machine:~/Desktop$ touch tfile
+bcl@bcl-virtual-machine:~/Desktop$ getfacl tfile 
+# file: tfile
+# owner: bcl
+# group: bcl
+user::rw-
+group::r--
+other::r--
+```
+
+setfacl 命令可用来修改文件的 ACL。下例中执行 setfacl –m 命令，为文件的 ACL 追加标 记类型为 ACL_USER 和 ACL_GROUP 的记录。
+
+```shell
+bcl@bcl-virtual-machine:~/Desktop$ setfacl -m user::rx,group::x tfile
+bcl@bcl-virtual-machine:~/Desktop$ getfacl --omit-header tfile
+user::r-x
+group::--x
+other::r--
+```
+
+追加了 ACL_USER 和 ACL_GROUP 标记类型的记录会将该 ACL 转变为扩展 ACL。因此， 在执行 ls –l 命令时，会在文件的传统权限掩码之后多一个加号（“+”）
+
+### 默认ACL与文件创建
+
+针对目录，还 可创建第二种 ACL：默认型（default）ACL。
+
+访问目录时，默认型 ACL 并不参与判定所授予的权限。相反，默认型 ACL 的存在与否决定了在目录下所创建文件或子目录的 ACL 和权限。
+
+执行带有–k 选项的 setfacl 命令，可删除针对目录而设的默认型 ACL。
+
+若针对目录设置了默认型 ACL，则：
+
+- 新建于目录下的子目录会将该目录的默认型 ACL 继承为其默认型 ACL。换言之，默认型 ACL 会随子目录的创建而沿目录树传播开来。
+- 新建于目录下的文件或子目录会将该目录的默认型 ACL 继承为其访问型 ACL。与传统文件权限位相对应的 ACL 记录将和创建文件或子目录时系统调用（open()、 mkdir()等等）中的 mode 参数相与（&）。
+
+若该目录并无默认 ACL，则：
+
+- 新建于该目录下的子目录也不存在默认 ACL。
+- 会沿用传统规则来设置目录下新建文件或目录的权限。除去按进程的 umask 而屏蔽权限位之外，将文件权限置为（open()、mkdir()等调用中）mode 参数的值。这时，新文件将拥有最小化的 ACL。
+
+### ACL API
+
+程序要使用 ACL API，就应包含。如果还用到了 POSIX.1e 标准草案中的各种 Linux 扩展（acl(5)手册页罗列了一系列 Linux 扩展），程序可能还需要包含。为与 libacl 库链接，编译此类程序时需带有-lacl 选项。
+
+#### 将文件的ACL读入内存
+
+```c
+acl_t acl;
+acl = acl_get_file(pathname,type);
+```
+
+acl_get_file()函数可用来获取（由 pathname 所标识）文件的 ACL 副本。
+
+取决于参数 type 的值（ACL_TYPE_ACCESS 或 ACL_TYPE_DEFAULT），可调用该函数来获取访问型 ACL 或默认型 ACL。
+
+#### 从内存ACL中获取记录
+
+```c
+acl_entry_t entry;
+status = acl_get_entry(acl,entry_id,&entry);
+```
+
+acl_get_entry()函数会返回一句柄，指向内存 ACL（由函数的 acl 参数指代）中的记录之 一。句柄的返回位置由函数的最后一个参数指定。
+
+entry_id 参数决定返回那条记录的句柄。若将其指定为 ACL_FIRST_ENTRY，则会返回的句柄指向 ACL 中的首条 ACE。若将该参数指定为 ACL_NEXT_ENTRY，则所返回的句柄将指向上次所获取记录之后的 ACE。
+
+若成功获取到一条 ACE，acl_get_entry()函数将返回 1；如无记录可取，则返回 0；失败， 则返回−1。
+
+#### 获取并修改 ACL 记录中的属性
+
+函数 acl_get_tag_type()和 acl_set_tag_type()可分别用来获取和修改（由 entry 参数所指定） ACL 记录中的**标记类型**。
+
+```c
+acl_tag_t tag_type;
+status = acl_get_tag_type(entry,&tag_type);
+status = acl_set_tag_type(entry,tag_type);
+```
+
+函数 acl_get_qualifier()和 acl_set_qualifier()可分别用来获取和修改（由 entry 参数所指定） ACL 记录中的**标记限定符**。
+
+```c
+uid_t *qualp;
+qualp = acl_get_qualifier(entry);
+status = acl_set_qualifier(entry,qualp);
+```
+
+函数 acl_get_permset()和 acl_set_permset()则可分别用来获取和修改（由 entry 参数所指代） ACE 中的**权限集合**。
+
+```c
+acl_permset_t permset;
+status = acl_get_permset(entry,&permset);
+status = acl_set_permset(entry,permset);
+```
+
+#### 创建和删除ACE
+
+```c
+acl_entry_t entry;
+status = acl_create_entry(&acl,&entry);
+status = acl_delete_entry(acl,entry);
+```
+
+#### 更新文件的ACL
+
+acl_set_file()函数的作用与 acl_get_file()相反，将使用驻留于内存的 ACL 内容（由 acl 参 数所指代）来更新磁盘上的 ACL。
+
+```c
+int status;
+status = acl_set_file(pathname,type,acl);
+```
+
+#### ACL在内存和文本格式之间的转换
+
+```c
+acl = acl_from_text(acl_string);
+
+char *str;
+ssize_t len;
+str = acl_to_text(acl,&len);
+```
+
+> 显示与文件挂钩的访问或默认 ACL  acl/acl_view.c
+
+## Chapter18 目录与链接
+
+### 目录和硬链接
+
+在文件系统中，目录的存储方式类似于普通文件。目录与普通文件的区别有二。
+
+- 在其 i-node 条目中，会将目录标记为一种不同的文件类型
+- 目录是经特殊组织而成的文件。本质上说就是一个表格，包含文件名和 i-node 编号。
+
+i-node 表的编号始于 1，而非 0，因为若目录条目的 i-node 字段值为 0，则表明该条目尚未使用。
+
+**i-node 1** 用来记录文件系统的**坏块**。
+
+**文件系统根目录(/)**总是存储在 **i-node 条目 2** 中（如图 18-1 所示），所以内核在解析路径名时就知道该从哪里着手。
+
+i-node存储的信息列表其中并未包含文件名，而仅通过目录列表内的一个映射来定义文件名称。能够在相同或者不同目录中创建多个名称，每个均指向相同的 i-node 节点。也将这些名称称为链接，有时也称之为**硬链接**。
+
+```shell
+# 在 shell 中利用 ln 命令为一个业已存在的文件创建新的硬链接
+bcl@bcl-virtual-machine:~/Desktop$ echo -n 'It is good to collect things,' > abc
+bcl@bcl-virtual-machine:~/Desktop$ ls -li abc
+2626420 -rw-rw-r-- 1 bcl bcl 29 3月  29 13:56 abc
+bcl@bcl-virtual-machine:~/Desktop$ ln abc xyz
+bcl@bcl-virtual-machine:~/Desktop$ echo 'but it is better to go on walks.' >> xyz
+bcl@bcl-virtual-machine:~/Desktop$ cat abc
+It is good to collect things,but it is better to go on walks.
+bcl@bcl-virtual-machine:~/Desktop$ ls -li abc xyz
+2626420 -rw-rw-r-- 2 bcl bcl 62 3月  29 13:57 abc
+2626420 -rw-rw-r-- 2 bcl bcl 62 3月  29 13:57 xyz
+```
+
+同一文件所有链接地位平等。
+
+在程序中如何找到与文件描述符 X 相关联的文件名？答案是==不能==
+
+硬链接有两个限制：
+
+1. 硬链接采用的是i-node编号，所以要和与指代文件处于同一个文件系统中。
+2. 不能为目录创建硬链接，避免陷入混乱的链接环路。
+
+### 符号（软）链接
+
+符号链接的数据是另一文件的名称。
+
+在shell中，符号链接是由ln-s命令创建的，ls-F命令的输出结果中会在符号链接的尾部标记@。
+
+符号链接地位不如硬链接，在文件链接计数中并未将符号链接记录在内。
+
+如果移除了符号链接所指向的文件名，符号链接依旧存在，称作悬空链接。
+
+总是会对路径名中目录部分的符号链接进行解除引用操作，例如路径/somedir/somesubdir/file 中，若 somedir 和somesubdir 属于符号链接，则一定会解除对这两个目录的引用，而针对 file 是否进行解引用与否，则取决于路径名所传入的系统调用。
+
+### 创建和移除硬链接：link()和 unlink()
+
+```c
+#include <unistd.h>
+int link(const char *oldpath,const char *newpath);
+```
+
+若 oldpath 中提供的是一个已存在文件的路径名，则系统调用 link()将以 newpath 参数所指定的路径名创建一个新链接。
+
+在 Linux 中，link()系统调用不会对符号链接进行解引用操作，若oldpath为符号链接，newpath也将会是符号链接。
+
+```c
+#include <unistd.h>
+int unlink(const char * pathname);
+```
+
+unlink()系统调用移除一个链接（删除一个文件名）。
+
+unlink()不能移除一个目录，完成这一任务需要使用 rmdir()或 remove()。
+
+unlink()系统调用不会对符号链接进行解引用操作。
+
+> 使用 unlink()移除一个链接 dirs_links/t_unlink.c
+
+### 更改文件名：rename()
+
+```c
+#include <stdio.h>
+int rename(const char *oldpath,const char *newpath);
+```
+
+调用会将现有的一个路径名 oldpath 重命名为 newpath 参数所指定的路径名。
+
+rename()调用仅操作目录条目，而不移动文件数据。改名既不影响指向该文件的其他硬链接，也不影响持有该文件打开描述符的任何进程，因为这些文件描述符指向的是打开文件描 述，（在调用 open()之后）与文件名并无瓜葛。
+
+- 可以使用`rename("sub1/x","sub2/y");`将一个文件移动到另一目录中，同时将其改名。
+
+- 若 oldpath 是一目录，则 newpath 不能包含 oldpath 作为其目录前缀。例如，不能将 /home/mtk 重命名为/home/mtk/bin（错误为 EINVAL）。
+
+### 使用符号链接：sysmlink()和readlink()
+
+```c
+#include <unistd.h>
+int symlink(const char *filepath,const char *linkpath);
+```
+
+symlink()系统调用会针对由 filepath 所指定的路径名创建一个新的符号链接—linkpath。（想移除符号链接，需使用 unlink()调用。）
+
+```c
+#include <unistd.h>
+ssize_t readlink(const char *pathname,char *buffer,size_t bufsiz);
+```
+
+readlink()将符号链接字符串的一份副本置于 buffer 指向的字符数组中。
+
+bufsiz 是一个整型参数，用以告知 readlink()调用 buffer 中的可用字节数。
+
+### 创建和移除目录：mkdir()和rmdir()
+
+```c
+#include <sys/stat.h>
+int mkdir(const char *pathname,mode_t mode);
+```
+
+pathname 参数指定了新目录的路径名。该路径名可以是相对路径，也可以是绝对路径。 若具有该路径名的文件已经存在，则调用失败并将 errno 置为 EEXIST。
+
+mode 参数指定了新目录的权限。
+
+```c
+#include <unistd.h>
+int rmdir(const char *pathname);
+```
+
+rmdir()系统调用移除由 pathname 指定的目录，该目录可以是绝对路径名，也可以是相对路径名。
+
+要删除的目录必须为空才能成功。
+
+### 移除一个文件或者目录：remove()
+
+```c
+#include <stdio.h>
+int remove(const char *pathname);
+```
+
+如果 pathname 是一文件，那么 remove()去调用 unlink()；如果 pathname 为一目录，那么 remove()去调用 rmdir()。
+
+remove()不会进行解引用操作。
+
+### 读目录：opendir()和readdir()
+
+```c
+#include <dirent.h>
+DIR *opendir(const char *dirpath);
+DIR *fdopendir(int fd);
+```
+
+指定路径或者文件描述符返回一个目录流。
+
+```c
+#include <dirent.h>
+struct dirent *readdir(DIR *dirp);
+```
+
+readdir()函数从一个目录流中读取连续的条目。每调用 readdir()一次，就会从 dirp 所指代的目录流中读取下一目录条目，并返回一枚指针， 指向经静态分配而得的 dirent 类型结构，每次调用都会覆盖，内含与该条目相关的如下信息：
+
+```c
+struct dirent{
+	ino_t d_ino;		/* File i-node number */
+	char d_name[];		/* Null-terminated name of file */
+};
+```
+
+```c
+#include <dirent.h>
+void rewinddir(DIR *dirp);
+int closedir(DIR *dirp);
+```
+
+rewinddir()函数可将目录流回移到起点，以便对 readdir()的下一次调用将从目录的第一个文件开始。
+
+closedir()函数将由 dirp 指代、处于打开状态的目录流关闭，同时释放流所使用的资源。
+
+#### 目录流与文件描述符
+
+```c
+#include <dirent.h>
+int dirfd(DIR *dirp);
+```
+
+dirfd()函数返回与 dirp 目录流相关联的文件描述符。
+
+> 扫描一个目录 dirs_links/list_files.c
+
+#### readdir_r()函数
+
+```c
+#include <dirent.h>
+int readdir_r(DIR  *dirp,struct dirent *entry,struct dirent **result);
+```
+
+readdir_r()函数是 readdir()的变体。
+
+readdir_r()对文件条目的返回利用的是由调用者分配的 entry 参数，而 readdir()则是将信息置于静态分配的结构并返回其指针。
+
+### 文件树遍历：nftw()
+
+```c
+#define _XOPEN_SOURCE 500
+#include <ftw.h>
+int nftw(const char *dirpath,
+		int (*func)(const char *pathname,const struct stat *statbuf,
+					int typeflag,struct FTW *ftwbuf),
+		int nopenfd,int flags);
+```
+
+nftw()函数允许程序对整个目录子树进行递归遍历，并为子树中的每个文件执行某些操作。
+
+nftw()函数遍历由 dirpath 指定的目录树，并为目录树中的每个文件调用一次由程序员定义的 func 函数。
+
+nopenfd参数为同时持有的描述符数目突破上限。
+
+flags参数可选FTW_CHDIR、FTW_DEPTH 、FTW_MOUNT 、FTW_PHYS、FTW_D 、FTW_DNR、FTW_DP、FTW_F 、FTW_NS 、FTW_SL、FTW_SLN
+
+每次调用 func 都必须返回一个整型值，由 nftw()加以解释。如果返回 0，nftw()会继续对树进行遍历，如果所有对 func 的调用均返回 0，那么 nftw()本身也将返回 0 给调用者。若返回非 0 值，则通知 nftw()立即停止对树的遍历，这时 nftw()也会返回相同的非 0 值。
+
+应用程序提前终止目录树遍历的唯一方法就是让func返回一个非0值。
+
+> 使用 nftw()遍历目录树 dirs_links/nftw_dir_tree.c
+
+### 进程的当前工作目录
+
+#### 获取当前工作目录
+
+```c
+#include <unistd.h>
+char *getcwd(char *cwdbuf,size_t size);
+```
+
+getcwd()函数将内含当前工作目录绝对路径的字符串（包括结尾空字符）置于 cwdbuf 指向的已分配缓冲区中。
+
+若 cwdbuf 为 NULL，且 size 为 0，则 glibc 封装函数会为 getcwd()按需分配一个缓冲区， 并将指向该缓冲区的指针作为函数的返回值。需要手动调用free()释放内存。
+
+#### 改变当前工作目录
+
+```c
+#include <unistd.h>
+int chdir(const char *pathname);
+```
+
+```c
+#define _XOPEN_SOURCE 500
+#include <unistd.h>
+int fchdir(int fd);
+```
+
+两者的区别在于使用路径还是文件描述符。
+
+### 目录文件描述符解释相对路径
+
+以openat()为例。
+
+```c
+#define _XOPEN_SOURCE 700
+#include <fcntl.h>
+int openat(int dirfd,const char *pathname,int flags,...);
+```
+
+openat()系统调用类似于传统的 open()系统调用，只是添加了一个 dirfd 参数。
+
+- 如果 pathname 中为一相对路径名，那么对其解释则以打开文件描述符 dirfd 所指向的 目录为参照点，而非进程的当前工作目录。
+- 如果 pathname 中为一相对路径，且 dirfd 中所含为特殊值 AT_FDCWD，那么对 pathname 的解释则相对与进程当前工作目录（即与 open(2)行为一致）而言。
+- 如果 pathname 中为绝对路径，那么将忽略 dirfd 参数。
+
+### 改变进程的根目录：chroot()
+
+根目录一般为解释绝对路径'/'
+
+```c
+#define _BSD_SOURCE
+#include <unistd.h>
+int chroot(const char *pathname);
+```
+
+chroot()系统调用将进程的根目录改为由 pathname 指定的目录（如果 pathname 是符号链接，还将对其解引用）
+
+chroot()可以用来创建监禁区，但是在监禁区之外的某一目录中持有一打开的文件描述符，结合fchdir()和chroot()即可越狱成功。如以下代码。为了防止这种可能性，必须关闭所有指向监禁区外目录的文件描述符。
+
+```c
+fd = open("/",O_RDONLY);
+chroot("/home/mtk");
+fchdir(fd);
+chroot(".");
+```
+
+### 解析路径名：realpath()
+
+```c
+#include <stdlib.h>
+char *realpath(const char *pathname,char *resolved_path);
+```
+
+realpath()库函数对 pathname（以空字符结尾的字符串）中的所有符号链接一一解除引用， 并解析其中所有对/.和/..的引用，从而生成一个以空字符结尾的字符串，内含相应的绝对路径名。生成的字符串将置于 resolved_path 指向的缓冲区中。
+
+> 读取并解析一个符号链接 dirs_links/view_symlink.c
+
+### 解析路径名字符串：dirname()和basename()
+
+```c
+#include <libgen.h>
+char *dirname(char *pathname);
+char *basename(char *pathname);
+```
+
+dirname()将路径截取目录部分，basename()将路径截取文件名部分。两者都会修改pathname指向的字符串，所以希望保留原有的字符串，需要传递字符串副本。
+
+比如，给定路径名为/home/britta/prog.c，dirname()将返回/home/britta，而 basename()将返回 prog.c。将 dirname()返回的字符串与一斜线字符（/）以及 basename()返回的字符串拼接起来，将生成一条完整的路径名。
+
+> dirname()和 basename()的应用 dirs_links/t_dirbasename.c
+
+在程序中存在strdup函数，不是标准C函数，而strcpy为标准C函数。
+
+strdup会将复制内容给没有初始化的指针，自动分配内存；strcpy的目标指针一定要已经分配内存的指针。
+
+strdup需要手动free释放内存；strcpy需要事前确定src的大小。

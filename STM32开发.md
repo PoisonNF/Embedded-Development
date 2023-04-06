@@ -67,9 +67,88 @@ Optimization level选择 `optimize most (-o3)`
 ***
 ## VS Code搭环境
 
+### keil Assistant插件
+> [(3条消息) 如何利用VScode打造优雅的STM32开发环境(超详细，新手向)——Keil Assistant插件_WZH灬的博客-CSDN博客](https://blog.csdn.net/weixin_43395116/article/details/114238722?ops_request_misc=%257B%2522request%255Fid%2522%253A%2522166609830516782412548841%2522%252C%2522scm%2522%253A%252220140713.130102334..%2522%257D&request_id=166609830516782412548841&biz_id=0&utm_medium=distribute.pc_search_result.none-task-blog-2~blog~top_click~default-1-114238722-null-null.nonecase&utm_term=keil%20assistant&spm=1018.2226.3001.4450)
+
+### EIDE插件
+> [这是什么？ | Embedded IDE For VSCode (em-ide.com)](https://em-ide.com/zh-cn/docs/intro)
+
 > [(3条消息) 一个超级好用的插件—EIDE，在VSCODE下快速创建ARM工程_小麦大叔的博客-CSDN博客](https://great.blog.csdn.net/article/details/119067457?spm=1001.2014.3001.5506)
 
-> [(3条消息) 如何利用VScode打造优雅的STM32开发环境(超详细，新手向)——Keil Assistant插件_WZH灬的博客-CSDN博客](https://blog.csdn.net/weixin_43395116/article/details/114238722?ops_request_misc=%257B%2522request%255Fid%2522%253A%2522166609830516782412548841%2522%252C%2522scm%2522%253A%252220140713.130102334..%2522%257D&request_id=166609830516782412548841&biz_id=0&utm_medium=distribute.pc_search_result.none-task-blog-2~blog~top_click~default-1-114238722-null-null.nonecase&utm_term=keil%20assistant&spm=1018.2226.3001.4450)
+### 使用插件Cortex-debug进行调试
+
+> [(22条消息) 使用 VSCode、arm-none-eabi-gdb、J-Link GDB Server 调试RTThread_rtthread env工具 在线调试_zhang-ge的博客-CSDN博客](https://blog.csdn.net/weixin_40837318/article/details/105188523)
+
+> [(22条消息) Cortex-debug 调试器使用介绍_cortex debug_「已注销」的博客-CSDN博客](https://blog.csdn.net/qq_40833810/article/details/106713462)
+
+#### 使用jlink调试
+
+1. 安装Cortex-debug插件
+
+2. 安装jlinkGDB，这个可以在EIDE中安装，目录路径位于C盘用户名下.eide/tools中，名字叫做jlink
+
+3. 在Cortex-debug插件json设置中，加入下面几行(用户名需要自己更改)
+
+    ```json
+    "cortex-debug.armToolchainPath": "C:\\Users\\bcl\\.eide\\tools\\gcc_arm\\bin",
+    "cortex-debug.JLinkGDBServerPath":"C:\\Users\\bcl\\.eide\\tools\\jlink\\JLinkGDBServerCL.exe",
+    ```
+
+4. 在debug的launch.json中加入以下几行
+
+    ```json
+        "configurations": [
+            {
+                "cwd": "${workspaceRoot}",
+                "type": "cortex-debug",
+                "request": "launch",
+                "name": "jlink",
+                "servertype": "jlink",
+                "interface": "swd",
+                "executable": "build\\Demo\\STM32.elf",		//指定.elf路径
+                "runToEntryPoint": "main",				   //起始点为main函数
+                "device": "STM32F103VC"					   //要配置成所使用的芯片
+            },
+    ```
+
+5. 按下键盘F5即可开始调试
+
+#### 使用STlink或其他仿真器调试
+
+1. 安装Cortex-debug插件
+
+2. 安装openOCD，这个可以在EIDE中安装，目录路径位于C盘用户名下.eide/tools中，名字以openocd开头
+
+3. 在Cortex-debug插件json设置中，加入下面几行(用户名需要自己更改)
+    ```json
+    "cortex-debug.armToolchainPath": "C:\\Users\\bcl\\.eide\\tools\\gcc_arm\\bin",
+    "EIDE.OpenOCD.ExePath": "${userRoot}/.eide/tools/openocd_7a1adfbec_mingw32/bin/openocd.exe",
+    "cortex-debug.openocdPath":
+    "C:\\Users\\bcl\\.eide\\tools\\openocd_7a1adfbec_mingw32\\bin\\openocd.exe",
+    ```
+
+4. 在debug的launch.json中加入以下几行
+
+    ```json
+             "configurations": [
+            {
+                "cwd": "${workspaceRoot}",
+                "type": "cortex-debug",
+                "request": "launch",
+                "name": "stlink",
+                "servertype": "openocd",
+                "executable": "build\\Demo\\STM32.elf", //指定.elf路径
+                "runToEntryPoint": "main",			   //起始点为main函数
+                "configFiles": [
+                    "interface/stlink.cfg",
+        //在openocd_7a1adfbec_mingw32\share\openocd\scripts\interface目录下寻找对应仿真器的cfg文件
+                    "target/stm32f1x.cfg"
+        //在openocd_7a1adfbec_mingw32\share\openocd\scripts\target目录下寻找对应芯片的cfg文件
+                ]
+            }
+    ```
+
+    
 
 ***
 # 常见问题
@@ -500,6 +579,12 @@ void USART1_IRQHandler(UART_HandleTypeDef *huart)
 > [HAL UART DMA 数据收发 - DW039 - 博客园 (cnblogs.com)](https://www.cnblogs.com/dw039/p/11692472.html) 
 >
 > [STM32_HAL库_CubeMx串口DMA通信（DMA发送+DMA空闲接收不定长数据）_何为其然的博客-CSDN博客_dma_handletypedef](https://blog.csdn.net/qq_30267617/article/details/118877845#:~:text=进入到 HAL_UART_Transmit_DMA,这个函数中可以看到，它将DMA传输完成、半完成、错误的回调函数分别定向到了串口DMA传输完成、半完成、错误的回调函数 UART_DMATransmitCplt、UART_DMATxHalfCplt、UART_DMAError 。)
+
+高波特率大数据量情况下使用fifo，F1只能使用半满半断的搬运模式，F4可以使用双缓存搬运模式。
+
+> [一个严谨的STM32串口DMA发送&接收（1.5Mbps波特率）机制_1.5mbps串口_Acuity.的博客-CSDN博客](https://blog.csdn.net/qq_20553613/article/details/108367512)
+>
+> [STM32 HAL 库实现乒乓缓存加空闲中断的串口 DMA 收发机制，轻松跑上 2M 波特率 - 扑鱼 - 博客园 (cnblogs.com)](https://www.cnblogs.com/puyu9499/p/15914090.html)
 
 ***
 
