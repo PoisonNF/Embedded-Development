@@ -228,3 +228,28 @@ FreeRTOS是每一个tick判断一次是否切换，RT-Thread是根据时间片�
 3. IDLE任务能否主动让步（配置项：configIDLE_SHOULD_YIELD）
 
     1为礼让，0为不礼让
+
+## FIFO队列
+
+### 队列创建函数
+
+```c
+QueueHandle_t xQueueCreate(UBaseType_t uxQueueLength,
+UBaseType_t uxItemSize)
+```
+
+uxQueueLength：要创建的队列的*队列长度*，这里是队列的数量
+uxItemSize： 队列中每个项目(消息)的长度，单位为字节 队列创捷成功以后返回的队列句柄！
+NULL: 队列创建失败
+
+### 入队函数
+
+![在这里插入图片描述](./FreeRTOS开发.assets/watermark,type_d3F5LXplbmhlaQ,shadow_50,text_Q1NETiBAenJ0OTAz,size_20,color_FFFFFF,t_70,g_se,x_16#pic_center.png)
+
+前三个任务级入队函数不用使用在中断服务函数中，应当使用下面的中断级入队函数。
+
+返回值：
+pdPASS： 向队列发送消息成功！
+errQUEUE_FULL: 队列已经满了，消息发送失败。
+
+队列可以做为信号量使用，一个任务随意写入队列任意值，另一个任务去读取队列是否有值。

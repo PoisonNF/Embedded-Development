@@ -21,7 +21,7 @@
         gcc -o main main.c test.c 
         ```
     - 链接时缺少相关的库文件（.a/.so）
-    
+
         ```makefile
         # test.c中有main.c的函数
         # 先将test.c编译成静态库.a
@@ -38,11 +38,14 @@
         gcc -o main main.c ./test.a
         ```
     - 多个库文件链接顺序问题
-    
+
         如果存在a引用b，b引用c，c引用d，需要注意库之间的依赖顺序，依赖其他库的库一定要放到被依赖库的前面，此时顺序变成abcd，
-    
+
     > [“undefined reference to“ 解决方法_daijingxin的博客-CSDN博客](https://blog.csdn.net/daijingxin/article/details/117292473)
 
+2. 命令行尾部加&表示这个任务放到后台去执行。
+
+3. GCC编译时增加宏定义-D标识符，相当于宏定义#define 标识符，例如`gcc -DDEBUG -g -o main.out main.c`
 ## Chapter1 历史和标准
 
 ## Chapter2 基本概念
@@ -82,9 +85,9 @@ open()调用既能打开一个业已存在的文件，也能创建并打开一�
 
 当调用 open()创建新文件时，位掩码参数 mode 指定了文件的访问权限
 
-> 使用 I/O 系统调用 fileio/copy.c 
+> 程序清单 4-1：使用 I/O 系统调用 fileio/copy.c 
 >
-> open 函数使用的例子 fileio/open.c 
+> 程序清单 4-2：open 函数使用的例子 fileio/open.c 
 
 ![image-20230312210717507](./Linux开发.assets/image-20230312210717507.png)
 
@@ -148,7 +151,7 @@ whence 参数则表明应参照哪个基点来解释 offset 参数，应为下�
 
 从文件结尾后到新写入数据间的这段空间被称为文件空洞。从编程角度看，文件空洞中是存在字节的，读取空洞将返回以 0（空字节）填充的缓冲区。
 
-> read()、write()和 lseek()的使用示范 fileio/seek_io.c
+> 程序清单 4-3：read()、write()和 lseek()的使用示范 fileio/seek_io.c
 
 ### 非通用I/O模型：ioctl()
 
@@ -169,7 +172,7 @@ int ioctl(int fd,int request,...);
 
 竞争状态：：操作共享资源的两个进程（或线程），其 结果取决于一个无法预期的顺序，即这些进程1 获得 CPU 使用权的先后相对顺序。
 
-> 试图以独占方式打开文件的错误代码 fileio/bad_exclusive_open.c
+> 程序清单 5-1：试图以独占方式打开文件的错误代码 fileio/bad_exclusive_open.c
 
 ### 文件控制操作：fcntl()
 
@@ -293,7 +296,7 @@ struct iovec{
 }
 ```
 
-> 使用 readv()执行分散输入 fileio/t_readv.c
+> 程序清单 5-2：使用 readv()执行分散输入 fileio/t_readv.c
 
 #### 在指定位置分散输入/集中输出
 
@@ -350,7 +353,7 @@ truncate()指定路径，ftruncate()指定文件描述符。
 - struct stat64：类似于stat，支持大文件尺寸
 - off64_t：64位类型，用于表示文件偏移量
 
-> 访问大文件 fileio/large_file.c
+> 程序清单 5-3：访问大文件 fileio/large_file.c
 
 #### _FILE_OFFSET_BITS宏
 
@@ -435,7 +438,7 @@ pid_t getppid(void);
 
 5. 堆，手动申请释放。堆顶端称作program break
 
-> 程序变量在进程内存各段中的位置 proc/mem_segments.c
+> 程序清单 6-1：程序变量在进程内存各段中的位置 proc/mem_segments.c
 
 ![image-20230312205929300](./Linux开发.assets/image-20230312205929300.png)
 
@@ -478,7 +481,7 @@ int argc 命令行参数的个数
 
 char *argv[ ] 指向命令行参数的指针数组，argv[argc]为 NULL
 
-> 回显命令行参数 proc/necho.c
+> 程序清单 6-2：回显命令行参数 proc/necho.c
 
 ### 环境列表
 
@@ -492,7 +495,7 @@ setenv设置环境变量，unset撤销环境变量，printenv显示当前环境�
 
 在 C 语言程序中，可以使用全局变量 char **environ 访问环境列表。
 
-> 显示进程环境 proc/display_env.c
+> 程序清单 6-3：显示进程环境 proc/display_env.c
 
 另外，还可以通过声明 main()函数中的第三个参数来访问环境列表：
 
@@ -542,7 +545,7 @@ int clearenv(void);
 
 清除整个环境。
 
-> 修改进程环境  proc/modify_env.c
+> 程序清单 6-4：修改进程环境  proc/modify_env.c
 
 ### 非局部跳转：setjmp()和longjmp()
 
@@ -556,13 +559,13 @@ void longjmp(jmp_buf env,int val);
 
 初始调用返回值为 0，后续“伪”返回的返回值为 longjmp()调用中 val 参数所指定的任意值。
 
-> 展示函数 setjmp()和 longjmp()的用法 proc/longjmp.c
+> 程序清单 6-5：展示函数 setjmp()和 longjmp()的用法 proc/longjmp.c
 
 #### 优化编译器的问题
 
 一般包含指针变量和 char、int、float、long 等任何简单类型的变量会受到longjmp()的干扰，将变量声明为 volatile，是告诉优化器不要对其进行优化，从而避免了代码重组。最好将所有局部变量都声明为volatile
 
-> 编译器的优化和 longjmp()函数相互作用的示例  proc/setjmp_vars.c
+> 程序清单 6-6：编译器的优化和 longjmp()函数相互作用的示例  proc/setjmp_vars.c
 
 #### 尽可能避免使用 setjmp()函数和 longjmp()函数
 
@@ -596,7 +599,7 @@ malloc( )函数在堆上分配参数 size 字节大小的内存（字节对齐�
 
 free()函数释放 ptr 参数所指向的内存块，并不降低 program break 的位置，而是将这块内存填加到空闲内存列表 中，供后续的 malloc()函数循环使用。
 
-> 示范释放内存时 program break 的行为 memalloc/free_and_sbrk.c
+> 程序清单 7-1：示范释放内存时 program break 的行为 memalloc/free_and_sbrk.c
 
 ### 在堆上分配内存的其他方法
 
@@ -687,7 +690,7 @@ struct group *getgrgid(gid_t gid);
 
 函数 getgrnam()和 getgrgid()分别通过组名和组 ID 来查找属组信息。
 
-> 在用户名/组名和用户 ID/组 ID 之间互相转换的函数 users_groups/ugid_functions.c
+> 程序清单 8-1：在用户名/组名和用户 ID/组 ID 之间互相转换的函数 users_groups/ugid_functions.c
 
 #### 扫描密码文件和组文件中的所有记录
 
@@ -727,7 +730,7 @@ char *crypt(const char *key,const char *salt);
 
 crypt()算法会接受一个最长可达 8 字符的密钥（即密码），并施之以数据加密算法（DES） 的一种变体。salt 参数指向一个两字符的字符串，用来扰动（改变）DES 算法，设计该技术， 意在使得经过加密的密码更加难以破解。该函数会返回一个指针，指向长度为 13 个字符的字符串，该字符串为静态分配而成，内容即为经过加密处理的密码。
 
-==要想在 Linux 中使用 crypt()==，在编译程序时需在末尾添加–lcrypt 选项，以便程序链接 crypt 库。
+==要想在 Linux 中使用 crypt()==，加入crypt.h文件，在编译程序时需在末尾添加–lcrypt 选项，以链接 crypt 库。
 
 ```c
 #define _BSD_SOURCE
@@ -737,7 +740,7 @@ char *getpass(const char *prompt);
 
 读取用户密码。该函数会打印出 prompt 所指向的字符串，读取一行输入，返回以 NULL 结尾的输入字符串（剥离尾部的换行符）作为函数结果。
 
-> 根据 shadow 密码文件验证用户 users_groups/check_password.c
+> 程序清单 8-2：根据 shadow 密码文件验证用户 users_groups/check_password.c
 
 ```c
 char *fgets(char *s,int size,FILE *stream);
@@ -900,7 +903,7 @@ initgroups()函数将扫描/etc/groups 文件，为 user 创建属组列表，�
 
 ![image-20230315164344297](./Linux开发.assets/image-20230315164344297.png)
 
-> 显示进程的所有用户 ID 和组 ID proccred/idshow.c
+> 程序清单 9-1：显示进程的所有用户 ID 和组 ID proccred/idshow.c
 
 ## Chapter10 时间
 
@@ -982,7 +985,7 @@ char *asctime(const struct tm *limeptr);
 
 在参数 tm 中提供一个指向分解时间结构的指针，asctime()则会返回一指针，指向经由静态分配的字符串，内含时间，格式则与 ctime ()相同。
 
-> 获取和转换日历时间 time/calendar_time.c
+> 程序清单 10-1：获取和转换日历时间 time/calendar_time.c
 
 ```c
 #include <time.h>
@@ -991,7 +994,7 @@ size_t strftime(char *outstr,size_t maxsize,const char *format,const struct tm *
 
 outstr 中返回的字符串按照 format 参数定义的格式做了格式化。Maxsize 参数指定 outstr 的最大长度。strftime()的 format 参数是一字符串，与赋予 printf()的参数相类似。strftime()返回 outstr 所指缓冲区的字节长度，且不包括终止空字节。
 
-> 返回当前时间的字符串的函数 curr_time.c
+> 程序清单 10-2：返回当前时间的字符串的函数 curr_time.c
 
 ```c
 #define _XOPEN_SOURCE
@@ -1001,7 +1004,7 @@ char *strptime(const char *str,const char *format,struct tm *timeptr);
 
 函数strptime()按照参数format内的格式要求，对由日期和时间组成的字符串str加以解析， 并将转换后的分解时间置于指针 timeptr 所指向的结构体中。如果成功，strptime()返回一指针，指向 str 中下一个未经处理的字符。出错为NULL
 
-> 获取和转换日历时间 time/strtime.c
+> 程序清单 10-3：获取和转换日历时间 time/strtime.c
 
 ### 时区
 
@@ -1015,7 +1018,7 @@ char *strptime(const char *str,const char *format,struct tm *timeptr);
 
 TZ环境变量设置为由一冒号(:)和时区名称组成的字符串。设置时区会自动影响到函数 ctime()、 localtime()、mktime()和 strftime()。上述函数都会调用 tzset(3)，对3个全局变量进行初始化。
 
-> 演示时区和地区的效果 time/show_time.c
+> 程序清单 10-4：演示时区和地区的效果 time/show_time.c
 
 ### 地区
 
@@ -1104,7 +1107,7 @@ clock_t clock(void);
 
 它返回一个值描述了调用进程使 用的总的 CPU 时间（包括用户和系统）。
 
-> 获取进程 CPU 时间 time/process_time.c
+> 程序清单 10-5：获取进程 CPU 时间 time/process_time.c
 
 ## Chapter11 系统限制和选项
 
@@ -1151,7 +1154,7 @@ long sysconf(int name);
 
 当函数无法确定限制或者发生错误时都会返回-1，所以区分上述两种情况需要在调用函数前将errno置为0。若调用后errno不为0，则发生了错误。
 
-> 使用sysconf()函数 syslim/t_sysconf.c
+> 程序清单 11-1：使用sysconf()函数 syslim/t_sysconf.c
 
 ### 运行时获取与文件相关的限制
 
@@ -1163,7 +1166,7 @@ long fpathconf(int fd,int name);
 
 pathconf()和 fpathconf()之间唯一的区别在于对文件或目录的指定方式。pathconf()采用路径名方式来指定，而 fpathconf()则使用（之前已经打开的）文件描述符。
 
-> 使用 fpathconf()函数 syslim/t_fpathconf.c
+> 程序清单 11-2：使用 fpathconf()函数 syslim/t_fpathconf.c
 
 ## Chapter12 系统和进程信息
 
@@ -1241,7 +1244,7 @@ struct utsname
 };
 ```
 
-> 使用 uname() sysinfo/t_uname.c
+> 程序清单 12-1：使用 uname() sysinfo/t_uname.c
 
 ## Chapter13 文件I/O缓冲
 
@@ -1393,7 +1396,7 @@ posix_fadvise()系统调用允许进程就自身访问文件数据时可能采�
 - 数据传输的开始点，亦即文件和设备的偏移量，必须是块大小的整数倍。
 - 待传递数据的长度必须是块大小的整数倍。
 
-> 使用 O_DIRECT 跳过缓冲区高速缓存 filebuff/direct_read.c
+> 程序清单 13-1：使用 O_DIRECT 跳过缓冲区高速缓存 filebuff/direct_read.c
 
 ### 混合使用库函数和系统调用进行文件 I/O
 
@@ -1527,7 +1530,7 @@ mount()系统调用将由 参数source 指定设备所包含的文件系统，�
 
 mount()的最后一个参数 data 是一个指向信息缓冲区的指针，对其信息的解释则取决于文件系统。
 
-> 使用 mount() filesys/t_mount.c
+> 程序清单 14-1：使用 mount() filesys/t_mount.c
 
 #### 卸载文件系统：umount()和umount2()
 
@@ -1692,7 +1695,7 @@ if((statbuf.st_mode & S_IFMT) == S_IfREG)
 
 st_atime、st_mtime 和 st_ctime 字段，分别记录了对文件的上次访问时间、上次修改时间， 以及文件状态发生改变的上次时间。
 
-> 获取并解释文件的 stat 信息 files/t_stat.c 
+> 程序清单 15-1：获取并解释文件的 stat 信息 files/t_stat.c 
 
 ### 文件时间戳
 
@@ -1812,7 +1815,7 @@ int fchown(int fd,uid_t owner,gid_t group);
 
 若只想改变其中之一，只需将另一参数设置为-1。
 
-> 改变文件的属主和属组 files/t_chown.c
+> 程序清单 15-2：改变文件的属主和属组 files/t_chown.c
 
 ### 文件权限
 
@@ -1893,7 +1896,7 @@ mode_t umask(mode_t mask);
 
 可以以八进制数或是表 15-4 中所列常量相或（|）来指定 mask 参数。
 
-> 使用 umask() files/t)umask.c
+> 程序清单 15-5：使用 umask() files/t_umask.c
 
 #### 更改文件权限：chmod()和 fchmod() 
 
@@ -2030,7 +2033,7 @@ ssize_t flistxattr(int fd,char *list,size_t size);
 
 调用将 EA 的名称列表以一系列以空字符结尾的字符串形式置于 list 所指向的缓冲区中。缓冲区的大小由 size 指定。一旦成功，上述系统调用会返回复制到 list 中的字节数。
 
-> 显示文件的扩展属性 xattr/xattr_view.c
+> 程序清单 16-1：显示文件的扩展属性 xattr/xattr_view.c
 
 ## Chapter17 访问控制列表
 
@@ -2193,7 +2196,7 @@ ssize_t len;
 str = acl_to_text(acl,&len);
 ```
 
-> 显示与文件挂钩的访问或默认 ACL  acl/acl_view.c
+> 程序清单 17-1：显示与文件挂钩的访问或默认 ACL  acl/acl_view.c
 
 ## Chapter18 目录与链接
 
@@ -2269,7 +2272,7 @@ unlink()不能移除一个目录，完成这一任务需要使用 rmdir()或 rem
 
 unlink()系统调用不会对符号链接进行解引用操作。
 
-> 使用 unlink()移除一个链接 dirs_links/t_unlink.c
+> 程序清单 18-1：使用 unlink()移除一个链接 dirs_links/t_unlink.c
 
 ### 更改文件名：rename()
 
@@ -2378,7 +2381,7 @@ int dirfd(DIR *dirp);
 
 dirfd()函数返回与 dirp 目录流相关联的文件描述符。
 
-> 扫描一个目录 dirs_links/list_files.c
+> 程序清单 18-2：扫描一个目录 dirs_links/list_files.c
 
 #### readdir_r()函数
 
@@ -2414,7 +2417,7 @@ flags参数可选FTW_CHDIR、FTW_DEPTH 、FTW_MOUNT 、FTW_PHYS、FTW_D 、FTW_D
 
 应用程序提前终止目录树遍历的唯一方法就是让func返回一个非0值。
 
-> 使用 nftw()遍历目录树 dirs_links/nftw_dir_tree.c
+> 程序清单 18-3：使用 nftw()遍历目录树 dirs_links/nftw_dir_tree.c
 
 ### 进程的当前工作目录
 
@@ -2490,7 +2493,7 @@ char *realpath(const char *pathname,char *resolved_path);
 
 realpath()库函数对 pathname（以空字符结尾的字符串）中的所有符号链接一一解除引用， 并解析其中所有对/.和/..的引用，从而生成一个以空字符结尾的字符串，内含相应的绝对路径名。生成的字符串将置于 resolved_path 指向的缓冲区中。
 
-> 读取并解析一个符号链接 dirs_links/view_symlink.c
+> 程序清单 18-4：读取并解析一个符号链接 dirs_links/view_symlink.c
 
 ### 解析路径名字符串：dirname()和basename()
 
@@ -2504,10 +2507,637 @@ dirname()将路径截取目录部分，basename()将路径截取文件名部分�
 
 比如，给定路径名为/home/britta/prog.c，dirname()将返回/home/britta，而 basename()将返回 prog.c。将 dirname()返回的字符串与一斜线字符（/）以及 basename()返回的字符串拼接起来，将生成一条完整的路径名。
 
-> dirname()和 basename()的应用 dirs_links/t_dirbasename.c
+> 程序清单 18-5：dirname()和 basename()的应用 dirs_links/t_dirbasename.c
 
 在程序中存在strdup函数，不是标准C函数，而strcpy为标准C函数。
 
 strdup会将复制内容给没有初始化的指针，自动分配内存；strcpy的目标指针一定要已经分配内存的指针。
 
 strdup需要手动free释放内存；strcpy需要事前确定src的大小。
+
+## Chapter19 监控文件事件
+
+inotify和dnotify都是Linux的专有机制。后者较为基本不使用，太老了。
+
+### 概述
+
+使用inotify API关键步骤
+
+1. 应用程序使用 inotify_init()来创建一 inotify 实例
+2. 应用程序使用 inotify_add_watch()向 inotify 实例（由步骤 1 创建）的监控列表添加条目，藉此告知内核哪些文件是自己的兴趣所在。
+3. 为获得事件通知，应用程序需针对 inotify 文件描述符执行 read()操作。
+4. 应用程序在结束监控时会关闭 inotify 文件描述符。
+
+> inotify 机制属可选的 Linux 内核组件，可通过 CONFIG_INOTIFY 和 CONFIG_  INOTIFY_USER 选项进行配置。
+
+### inotify API
+
+```c
+#include <sys/inotify.h>
+int inotify_init(void);
+```
+
+inotify_init()系统调用可创建一新的 inotify 实例。返回一个文件描述符（句柄）后续操作使用此指代inotify实例。
+
+```c
+#include <sys/inotify.h>
+int inotify_add_watch(int fd,uint32_t wd);
+```
+
+针对文件描述符 fd 所指代 inotify 实例的监控列表，系统调用 inotify_add_watch()既可以追加新的监控项，也可以修改现有监控项。
+
+前提是调用程序必须要有对目标文件的读权限。只做一次检查，后续读权限不存在不会影响监控。
+
+```c
+#include <sys/inotify.h>
+int inotify_rm_watch(int fd,uint32_t wd);
+```
+
+系统调用 inotify_rm_watch()会从文件描述符 fd 所指代的 inotify 实例中，删除由 wd 所定义的监控项。
+
+删除监控项会为该监控描述符生成 IN_IGNORED 事件。
+
+### inotify事件
+
+![image-20230406142853124](./Linux开发.assets/image-20230406142853124.png)
+
+![image-20230406142905381](./Linux开发.assets/image-20230406142905381.png)
+
+### 读取inotifiy事件
+
+使用read()可以从inotify文件描述符中读取事件，返回一个缓冲区包含发生的事件，如果时至读取时未发生任何事件，read()会阻塞下去，直到事件产生。
+
+```c
+struct inotify_event
+{
+  int wd;		/* Watch descriptor.  */
+  uint32_t mask;	/* Watch mask.  */
+  uint32_t cookie;	/* Cookie to synchronize two events.  */
+  uint32_t len;		/* Length (including NULs) of name.  */
+  char name[];	/* Name.  */
+};
+```
+
+- 字段 wd 指明发生事件的是那个监控描述符。
+- mask 字段会返回描述该事件的位掩码。
+- 使用 cookie 字段可将相关事件联系在一起。目前，只有在对文件重命名时才会用到该字段。
+- 当受监控目录中有文件发生事件时，name 字段返回一个以空字符结尾的字符串，以标识该文件。若受监控对象自身有事件发生，则不使用 name 字段，将 len 字段置 0。
+- len 字段用于表示实际分配给 name 字段的字节数。
+
+> 程序清单 19-1：运用 inotify API  inotify/demo_intify.c
+
+### 队列限制和/proc文件
+
+对 inotify 事件做排队处理，需要消耗内核内存。超级用户可以配置/proc/sys/fs/inotify路径3个文件来调整限制：
+
+- max_queued_events 设置事件数量上限
+- max_user_instances 对每个真实用户ID创建的inotify实例数的限制
+- max_user_watches 对每个真实用户ID创建的监控数的限制
+
+默认值为16384、128、8192
+
+### 旧有系统：dnotify
+
+1. dnotify使用信号通告，inotify不使用信号
+2. dnotify监控的是目录，inotify既可以是文件也可以是目录
+3. dnotify会消耗大量的文件描述符，inotify不需要文件描述符
+4. inotify信息更加详细
+
+## Chapter20 信号：基本概念
+
+### 概念
+
+信号是事件发生时对进程的通知机制，也称作软件中断。
+
+针对每个信号，都定义了一个唯一的（小）整数，从 1 开始顺序展开。以 SIGxxxx 形式的符号名对这些整数做了定义。
+
+信号分为两大类。第一组用于内核向进程通知事件，构成所谓传统或者标准信号。Linux 中标准信号的编号范围为 1～31。另一组信号由实时信号构成。
+
+信号到达后的默认操作：
+
+- 忽略信号
+- 终止进程
+- 产生核心转储文件，同时进程终止
+- 停止进程
+- 与之前暂停后再度恢复进程的执行
+
+对信号的处置以下之一：
+
+- 采取默认行为
+- 忽略信号
+- 执行信号处理器程序
+
+信号处理器程序是由程序员编写的函数，用于为响应传递来的信号而执行适当任务。
+
+Linux 特有的/proc/PID/status 文件包含有各种位掩码字段，通过检查这些掩码可以确定进程对信号的处理。
+
+### 信号类型和默认行为
+
+ Linux 对标准信号的编号为 1～31，信号网上查
+
+![image-20230406223754046](./Linux开发.assets/image-20230406223754046.png)
+
+![image-20230406223805134](./Linux开发.assets/image-20230406223805134.png)
+
+### 改变信号处置：signal()
+
+该函数不如sigaction()，在不用UNIX下存在差异，强烈推荐使用sigaction()建立信号处理器。
+
+```c
+#include <signal.h>
+void (*signal(int sig,void (*handler)(int)))(int);
+```
+
+第一个参数 sig，标识希望修改处置的信号编号。
+
+第二个参数 handler，则标识信号抵达时所调用函数的地址。该函数无返回值（void），并接收一个整型参数。
+
+signal()的返回值是之前的信号处置。
+
+信号处理函数一般为以下形式，函数可以任取，与signal中相同即可
+
+```c
+void handler(int sig)
+{
+	/* Code for the handler */
+}
+```
+
+### 信号处理器简介
+
+调用信号处理器程序，可能会随时打断主程序流程；内核代表进程来调用处理器程序，当处理器返回时，主程序会在处理器打断的位置恢复执行。（类似于stm32中的中断服务函数）
+
+> 程序清单 20-1：为 SIGINT 信号安装一个处理器程序  signals/ouch.c
+
+信号处理器程序的整形参数（int sig）用于判定引发处理器调用的是何种信号，如果只有存在一种信号，该参数无效。程序20-2将会演示使用方法。
+
+> 程序清单 20-2：为两个不同信号建立同一处理器函数 signals/intquit.c
+
+==一般绝不会再信号处理器程序中使用stdio函数，例如printf()函数==，原因在21.1.2节
+
+### 发送信号：kill()
+
+```c
+#include <signal.h>
+int kill(pid_t pid,int sig);
+```
+
+pid参数标识一个或者多个进程，有以下四种情况
+
+1. 如果pid > 0，那么会发送信号给由 pid **指定的进程**
+2. 如果pid = 0，那么会发送信号给与调用进程**同组的每个进程**，包括调用进程自身
+3. 如果pid < -1，那么会向**组 ID** 等于该 pid 绝对值的进程组内所有下属进程发送信号
+4. 如果pid = -1，调用进程有权将信号发往的**每个目标进程**， 除去 init（进程 ID 为 1）和调用进程自身，称为广播信号
+
+sig参数指定了要发送的信号
+
+### 检查进程的存在
+
+ kill()系统调用将sig指定为0，kill()回去检查是否能向目标进程发送信号。
+
+可以使用其他技术来检查进程是否运行
+
+- wait()系统调用
+- 信号量和排他文件锁
+- 诸如管道和 FIFO 之类的 IPC 通道
+- /proc/PID 接口
+
+### 发送信号的其他方式：raise()和killpg()
+
+```c
+#include <signal.h>
+int raise(int sig);
+```
+
+raise()可以向自身发送信号，相当于`kill(getpid(),sig);`
+
+调用 raise()唯一可能发生的错误为 EINVAL（非0值），即sig无效。
+
+> 程序清单 20-3：使用 kill()系统调用 signals/t_kill.c
+
+```c
+#include <signal.h>
+int killpg(pid_t pgrp,int sig);
+```
+
+killpg()相当于`kill(-pgrp,sig)`;如果指定 pgrp 的值为 0，那么会向调用者所属进程组的所有进程发送此信号。
+
+### 显示信号描述
+
+```c
+#define _BSD_SOURCE
+#include <signal.h>
+extern const char *const sys_siglist[];
+
+#define _GNU_SOURCE
+#include <string.h>
+char *strsignal(int sig);
+```
+
+每个信号都有一串与之相关的可打印说明。
+
+可以使用sys_siglist[SIG...]来获取描述，或者使用strsignal()函数。
+
+```c
+#include <signal.h>
+void psignal(int sig,const char *msg);
+```
+
+psignal()函数（在标准错误设备上）所示为 msg 参数所给定的字符串，后面跟有一个冒号， 随后是对应于 sig 的信号描述。
+
+### 信号集
+
+多个信号可使用一个称之为信号集的数据结构来表示，其系统数据类型为 sigset_t
+
+```c
+#include <signal.h>
+int sigemptyset(sigset_t *set);
+int sigfillset(sigset_t *set);
+```
+
+返回值 0 成功；-1失败
+
+必须使用 sigemptyset()或者 sigfillset()来初始化信号集。
+
+---
+
+```c
+#include <signal.h>
+int sigaddset(sigset_t *set,int sig);
+int sigdelset(sigset_t *set,int sig);
+```
+
+返回值 0 成功；-1失败
+
+使用 sigaddset()和 sigdelset()函数向一个集合中添加或者移除单个信号。
+
+---
+
+```c
+#include <signal.h>
+int sigismember(const sigset_t *set,int sig);
+```
+
+sigismember()函数用来测试信号 sig 是否是信号集 set 的成员。
+
+如果是set中的一员返回1，否则返回0
+
+---
+
+```c
+#define _GNU_SOURCE
+#include <signal.h>
+int sigandset(sigset_t *set,sigset_t *left,sigset_t *right);
+int sigorset(sigset_t *dset,sigset_t *left,sigset_t *right);
+int sigisemptyset(const sigset_t *set);
+```
+
+- sigandset()将 left 集和 right 集的交集置于 dest 集。
+
+- sigorset()将 left 集和 right 集的并集置于 dest 集。
+
+- 若 set 集内未包含信号，则 sigisemptyset()返回 true。
+
+> 程序清单 20-4：显示信号集的函数 signals/signal_functions.c
+
+### 信号掩码（阻塞信号传递）
+
+```c
+#include <signal.h>
+int sigprocmask(int how,const sigset_t *set,sigset_t oldset);
+```
+
+使用 sigprocmask()函数既可修改进程的信号掩码，又可获取现有掩码，或者两重功效兼具。
+
+how 参数指定了 sigprocmask()函数想给信号掩码带来的变化，有以下三个可选项。
+
+- **SIG_BLOCK** 将 set 指向信号集内的指定信号添加到信号掩码中。
+- **SIG_UNBLOCK**  将 set 指向信号集中的信号从信号掩码中移除。
+- **SIG_SETMASK**  将 set 指向的信号集赋给信号掩码。
+
+若 oldset 参数不为空，则其指向一个 sigset_t 结构缓冲区，用于返回之前的信号掩码。
+
+如果想**获取信号掩码**而又对其不作改动，那么可将 set 参数指定为空，这时将忽略 how 参数。
+
+sigprocmask()函数不会区关注SIGKILL和SIGSTOP，除此之外都可以被阻塞。
+
+```c
+//Code20-5 展示阻塞信号传递
+sigset_t blockSet,prevMask;
+
+sigemptyset(&vlockSet);
+sigaddset(&blockSet,SIGINT);
+
+// 阻塞SIGINT,保存上一次的信号掩码
+if(sigprocmask(SIG_BLOCK<&blockSet,&prevMask) == -1)
+	errExit("sigprocmask1");
+
+//写不应该被SIGINT打断的代码
+
+//恢复前一次信号，不阻塞SIGINT
+if(siprocmask(SIG_SETMASK,&prevMask,NULL) == -1)
+    errExit("sigprocmask2");
+```
+
+### 处于等待状态的信号
+
+```c
+#include <signal.h>
+int sigpending(sigset_t *set);
+```
+
+sigpending()系统调用为调用进程返回处于等待状态的信号集，并将其置于 set 指向的 sigset_t 结构中。随后可以使用sigismember()函数来检查 set。
+
+### 不对信号进行排队处理
+
+sig_sender.c可以接收四个命令行参数，./sig_sender PID num-sigs sig-num [sig-num2]
+
+第一个参数是程序发送信号的目标进程 ID。第二个参数则指定发送给目标进程的信号数量。 第三个参数指定发往目标进程的信号编号。如果还提供了一个信号编号作为第四个参数。
+
+> 程序清单 20-6：发送多个信号 signals/sig_sender.c
+>
+> 程序清单 20-7：捕获信号并对其计数  signals/sig_receiver.c
+
+### 改变信号处置：sigaction()
+
+sigaction()相比signal()更加复杂灵活，移植性好
+
+```c
+#include <signal.h>
+int sigaction(int sig,const struct sigaction *act,struct sigaction *oldact);
+```
+
+sig 参数标识想要获取或改变的信号编号。
+
+act和oldact参数都是一枚指针，有如下的数据结构
+
+```c
+struct sigaction
+  {
+    /* Signal handler.  */
+#if defined __USE_POSIX199309 || defined __USE_XOPEN_EXTENDED
+    union
+      {
+	/* Used if SA_SIGINFO is not set.  */
+	__sighandler_t sa_handler;
+	/* Used if SA_SIGINFO is set.  */
+	void (*sa_sigaction) (int, siginfo_t *, void *);
+      }
+    __sigaction_handler;
+# define sa_handler	__sigaction_handler.sa_handler
+# define sa_sigaction	__sigaction_handler.sa_sigaction
+#else
+    __sighandler_t sa_handler;
+#endif
+
+    /* Additional set of signals to be blocked.  */
+    __sigset_t sa_mask;
+
+    /* Special flags.  */
+    int sa_flags;
+
+    /* Restore handler.  */
+    void (*sa_restorer) (void);
+  };
+```
+
+仅当 sa_handler 是信号处理程序的地址时，亦即 sa_handler 的取值在 SIG_IGN 和 SIG_DFL 之外，才会对 sa_mask 和 sa_flags 字段加以处理。 余下的字段 sa_restorer，则不适用于应用程序。
+
+sa_restorer字段仅供内部使用，用以确保当信号处理器程序完成后，会去调用专用的 sigreturn()系统调用，借此来恢复进程的执行上下文。
+
+sa_mask 字段定义了一组信号，在调用由 sa_handler 所定义的处理器程序时将阻塞该组信号。
+
+sa_flags 字段是一个位掩码，指定用于控制信号处理过程的各种选项。该字段包含的位如下（可以相或（|））。
+
+SA_NOCLDSTOP 、SA_NOCLDWAIT、SA_NODEFER 、SA_ONSTACK 、SA_RESETHAND、SA_RESTART 、SA_SIGINFO
+
+### 等待信号：pause()
+
+```c
+#include <unistd.h>
+int pause(void);
+```
+
+调用 pause()将暂停进程的执行，直至信号处理器函数中断该调用为止。
+
+## Chapter21 信号：信号处理器函数
+
+### 设计信号处理器函数
+
+两中常见的设计：
+
+1. 信号处理器函数设置全局性标志变量并退出。主程序对此标志进行周期性检查，一旦置位随即采取相应动作。
+2. 信号处理器函数执行某种类型的清理动作，接着终止进程或者使用非本地跳转将栈解开并将控制返回到主程序中的预定位置。
+
+### 可重入函数和异步信号安全函数
+
+#### 可重入和非可重入函数
+
+**可重入：**
+
+如果同一个进程的多条线程可以同时安全地调用某一函数，那么该函数就是可重入的。此处，“安全”意味着，无论其他线程调用该函数的执行状态如何，函数均可产生预期结果。
+
+**不可重入：**
+
+更新**全局变量**或**静态数据结构**的函数可能是不可重入的。例如malloc()函数族和stdio函数库成员就不是可重入。
+
+> 程序清单 21-1：在 main()以及信号处理函数中调用不可重入的函数 signals/nonreentrant.c
+
+#### 标准的异步信号安全函数
+
+异步信号安全的函数是指当从信号处理器函数调用时，可以保证其实现是安全的。
+
+下表均为各种标准要求实现为异步信号安全的函数。
+
+![image-20230409162807319](./Linux开发.assets/image-20230409162807319.png)
+
+编写处理器函数有以下两种选择
+
+- 确保信号处理器函数代码本身是可重入的，且只调用异步信号安全的函数。
+- 当主程序执行不安全函数或是去操作信号处理器函数也可能更新的全局数据结构时， 阻塞信号的传递。
+
+第2种在大型程序中难以实现，所以将规则简化为在==信号处理器函数中绝不调用不安全的函数==。
+
+#### 信号处理器函数内部对 errno 的使用
+
+errno在信号处理器函数中可以会改变，所以可以在函数入口处保存errno值，在出口处恢复之前的errno值
+
+```c
+void handler(int sig)
+{
+	int savedErrno;
+	saveErrno = errno;
+	
+	/* code might modify errno */
+    
+	errno = savedErrno;
+}
+```
+
+#### 全局变量和 sig_atomic_t 数据类型
+
+一种常见的设计是，信号处理器函数只做一件事情，设置全局标志。 主程序则会周期性地检查这一标志，并采取相应动作来响应信号传递（同时清除标志）。当信号处理器函数以此方式来访问全局变量时，应该总是在声明变量时使用 volatile 关键字，从而防止编译器将其优化到寄存器中。
+
+为了保证原子性，提供了一种整型数据类型sig_atomic_t，例如可以使用`volatile sig_atomic_t flag;`
+
+！！！注意，C语言的++和--不在保障范围内。（硬件架构原因）
+
+### 终止信号处理器函数的其他方法
+
+1. 使用_exit()终止进程。处理器函数事先可以做一些清理工作。（不要使用exit(）不是安全函数)
+2. 使用kill()发送信号来杀掉进程
+3. 从信号处理函数中执行非本地跳转
+4. 使用abort()函数终止进程，产生核心转储
+
+#### 在信号处理器函数中执行非本地跳转
+
+Linux 遵循 System V 的特性，longjmp()不会将信号掩码恢复，亦即在离开处理器函数时不会对遭阻塞的信号解除阻塞。使用 longjmp()来退出信号处理器函数将有损于程序的可移植性。
+
+```c
+#include <setjmp.h>
+int sigsetjmp(sigjmp_buf env,int savesigs);
+void siglongjmp(sigjmp_buf env,int val);
+```
+
+函数 sigsetjmp()和 siglongjmp()的操作与 setjmp()和 longjmp()类似。唯一的区别是参数 env 的类型不同（是 sigjmp_buf 而不是 jmp_buf），并且 sigsetjmp()多出一个参数 savesigs。如果指定 savesigs 为非 0，那么会将调用 sigsetjmp()时进程的当前信号掩码保存于 env 中，之后通过指定相同 env 参数的 siglongjmp()调用进行恢复。如果 savesigs 为 0，则不会保存和恢复进程的信号掩码。
+
+> 程序清单 21-2：在信号处理器函数中执行非本地跳转 signals/sigmask_longjmp.c
+
+#### 异常终止进程：abort()
+
+```c
+#include <stdlib.h>
+void abort(void);
+```
+
+函数 abort()通过产生 SIGABRT 信号来终止调用进程。对 SIGABRT 的默认动作是产生核心转储文件并终止进程。
+
+### 在备选栈中处理信号：sigaltstack()
+
+调用信号处理器函数，会在进程栈中创建一帧，但是如果接近栈的上限RLIMIT_STACK时，需要使用备用栈。
+
+当进程对栈的扩展试图突破其上限时，内核将为该进程产生 SIGSEGV 信号。栈空间已经耗尽，就不会调用处理器函数了。如果要确保SIGSEGV信号处理器函数的调用，需要做以下的工作。
+
+1. 分配一块被称为“备选信号栈”的内存区域，作为信号处理器函数的栈帧。
+2. 调用 sigaltstack()，告之内核该备选信号栈的存在。
+3. 在创建信号处理器函数时指定 SA_ONSTACK 标志，亦即通知内核在备选栈上为处理器函数创建栈帧。
+
+```c
+#include <signal.h>
+int sigaltstack(const stack_t *sigstack,stack_t *old_sigstack);
+```
+
+利用系统调用 sigaltstack()，既可以创建一个备选信号栈，也可以将已创建备选信号栈的相关信息返回。
+
+参数 sigstack 所指向的数据结构描述了新备选信号栈的位置及属性。参数 old_sigstack 指向的结构则用于返回上一备选信号栈的相关信息（如果存在）。两个参数之一均可为 NULL。
+
+```c
+typedef struct{
+	void *ss_sp;		/* Starting addresss of alternate stack */
+	int ss_flags;		/* Flags:SS_ONSTACK,SS_DISABLE */
+	size_t ss_size;		/* Size of alternate stack */
+}stack_t;
+```
+
+字段 ss_sp 和 ss_size 分别指定了备选信号栈的位置和大小。内核会自动对齐。
+
+备选信号栈可以静态分配，也可以动态分配。常量SIGSTKSZ为栈大小典型值为8192，常量MINSSIGSTKSZ为处理器函数最小值为2048。（Linux/x86-32）
+
+flag参数可选：
+
+- SS_ONSTACK 如果在获取已创建备选信号栈的当前信息时该标志已然置位，就表明进程正在备选信号栈上执行。
+- SS_DISABLE 在 old_sigstack 中返回，表示当前不存在已创建的备选信号栈。如果在 sigstack 中指定，则会禁用当前已创建的备选信号栈。
+
+> 程序清单 21-3：使用 sigaltstack() signals/t_sigaltstack.c
+
+该程序中命令ulimit负责移除 shell 之前可能设置的任何 RLIMIT_STACK 资源限制。
+
+### SA_SIGINFO 标志
+
+在使用 sigaction()创建处理器函数时设置了 SA_SIGINFO 标志，可以在信号处理函数中获取该信号的一些信息。
+
+函数声明需改成`void handler(int sig,siginfo_t *siginfo,void *ucontext);`
+
+第 1 个参数 sig 表示信号编号。第 2 个参数 siginfo 是用于提供信号附加信息的一个结构。该结构会与最后一个参数 ucontext 一起。
+
+下面是使用SA_SIGINFO创建信号处理器函数的例子
+
+```c
+struct sigaction act;
+
+sigemptyset(&act.sa_mask);
+act.sa_sigaction = handler;
+act.sa_flags = SA_SIGINFO;
+
+if(sigaction(SIGINT,&act,NULL) == -1)
+	errExit("sigaction");
+```
+
+#### 结构siginfo_t
+
+```c
+typedef struct {
+    int si_signo; /* Signal number */
+    int si_code;  /* Signal code */
+    int si_trapno;		/*Trap number for hardware-generated signal
+    					(unused on most architectures)*/
+    union sigval si_value;	/*Accompanying data from sigqueue()*/
+    pid_t si_pid;		/*Process ID of sending process*/
+    uid_t si_uid;		/*Real user ID of sender */
+    int si_errno;		/*Error number (generally unused)*/
+    void* si_addr;		/*Address that generated signal
+						 (hardware-generated signals only)*/
+    int si_overrun;		/* Overrun count (Linux 2.6，POSIX timers) */
+    int si_timerid;		/*(Kernel-internal) Timer ID
+    					(Linux 2.6，POSIX timers)*/
+    long si_band;		/*Band event (SIGPOLL/SIGIO)*/
+    int si_fd;			/*File descriptor (SIGPOLL/SIGIO)*/
+    int si_status;		/*Exit status or signal (SIGCHLD)*/
+    clock_t si_utime;	/*User CPU time (SIGCHLD) */
+    clock_t si_stime;	/*System CPu time (SIGCHLD)*/
+} siginfo_t;
+```
+
+该结构体位于<bits/types/siginfo_t.h>
+
+#### 参数ucontext
+
+一个指向ucontext_t类型的结构指针（定义于<ucontext.h>）
+
+### 系统调用的中断与重启
+
+在系统调用遭信号处理器中断的事件中，利用如下代码来手动重启系统调用。read()会阻塞到数据输入为止。
+
+```c
+while((cnt = read(fd,buf,BUF_SIZE))  == -1 && errno == EINTR)
+	continue;		/* Do nothing loop body */
+
+if(cnt == -1)		/* read() failed with other than EINTR */
+	errExit("read");
+```
+
+如果需要频繁使用上述代码，那么定义成如下宏会很方便：
+
+`#define NO_EINTR(stmt) while((stmt) == -1 && errno == EINTR);`
+
+即使使用了宏，如果需要为每个阻塞的系统调用添加代码还是很麻烦，所以可以调用指定 了 SA_RESTART 标志的 sigaction()来创建信号处理器函数，从而令内核代表进程自动重启系统调用，还无需处理系统调用可能返回的 EINTR 错误。
+
+#### SA_RESTART 标志对哪些系统调用（和库函数）有效
+
+因为历史原因，不是所有的系统调用都可以通过该方式重启。具体需要自己在调查一下。
+
+#### 为信号修改 SA_RESTART 标志
+
+```c
+#include <signal.h>
+int siginterrupt(int sig,int flag);
+```
+
+若参数 flag 为真（1），则针对信号 sig 的处理器函数将会中断阻塞的系统调用的执行。如 果 flag 为假（0），那么在执行了 sig 的处理器函数之后，会自动重启阻塞的系统调用。
+
+SUSv4 标记 sigterrupt()为已废止，并推荐使用 sigaction()加以替代。
+
+#### 对于某些 Linux 系统调用，未处理的停止信号会产生 EINTR 错误
+
+如果系统调用遭到阻塞，并且进程因信号（SIGSTOP、SIGTSTP、SIGTTIN 或 SIGTTOU）而停止，之后又因收到 SIGCONT 信号而恢复执行时，就会发生这种情况。
+
