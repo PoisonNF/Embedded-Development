@@ -253,3 +253,141 @@ pdPASS： 向队列发送消息成功！
 errQUEUE_FULL: 队列已经满了，消息发送失败。
 
 队列可以做为信号量使用，一个任务随意写入队列任意值，另一个任务去读取队列是否有值。
+
+## 信号量
+
+### 创建
+
+|          |              二进制信号量               |          技术型信号量          |
+| :------: | :-------------------------------------: | :----------------------------: |
+| 动态创建 |         xSemaphoreCreateBinary          |    xSemaphoreCreateCounting    |
+|          | vSemaphoreCreateBinary(初始为1，已过时) |                                |
+| 静态创建 |      xSemaphoreCreateBinaryStatic       | xSemaphoreCreateCountingStatic |
+
+### 获取和释放信号量
+
+|      |  在任务中使用  |     在中断中使用      |
+| :--: | :------------: | :-------------------: |
+| 释放 | xSemaphoreGive | xSemaphoreGiveFromISR |
+| 获得 | xSemaphoreTake | xSemaphoreTakeFromISR |
+
+## 互斥量
+
+### API
+
+|      |             递归锁             |      一般互斥量       |
+| :--: | :----------------------------: | :-------------------: |
+| 创建 | xSemaphoreCreateRecursiveMutex | xSemaphoreCreateMutex |
+| 获得 |    xSemaphoreTakeRecursive     |    xSemaphoreTake     |
+| 释放 |    xSemaphoreGiveRecursive     |    xSemaphoreGive     |
+
+### 与信号量相比的优势
+
+- 解决优先级反转的问题
+
+- 能解决递归上锁/解锁的问题
+
+### 互斥量的缺陷
+
+- FreeRTOS并没有实现谁持有，谁释放。需要编程人员自己保证。
+
+### 递归锁
+
+谁持有，谁释放。
+
+递归上锁/解锁。
+
+## 事件组
+
+创建事件组
+
+`EventGroupHandle_t xEventGroupCreate( void );`
+
+设置事件组事件位
+
+`EventBits_t xEventGroupSetBits( EventGroupHandle_t xEventGroup, const EventBits_t uxBitsToSet );`
+
+设置事件组事件位中断安全版本
+
+`BaseType_t xEventGroupSetBitsFromISR( EventGroupHandle_t xEventGroup,const EventBits_t uxBitsToSet,BaseType_t *pxHigherPriorityTaskWoken );`
+
+等待事件位
+
+`EventBits_t xEventGroupWaitBits( const EventGroupHandle_t xEventGroup,const EventBits_t uxBitsToWaitFor,const BaseType_t xClearOnExit,const BaseType_t xWaitForAllBits,TickType_t xTicksToWait );`
+
+事件同步点
+
+`EventBits_t xEventGroupSync( EventGroupHandle_t xEventGroup,const EventBits_t uxBitsToSet,const EventBits_t uxBitsToWaitFor,TickType_t xTicksToWait );`
+
+## 任务通知
+
+任务通知在FreeRTOS中是一个可选的功能，要使用任务通知的话就需要将宏configUSE_TASK_NOTIFICATIONS定义为1。
+
+使用任务通知来实现二值信号量功能的时候，解除任务阻塞的时间比直接使用二值信号量要快45%，并且使用的RAM更少！
+
+限制：
+
+- FreeRTOS的任务通知只能有一个接收任务，其实大多数的应用都是这种情况。
+- 接收任务可以因为接收任务通知而进入阻塞态，但是发送任务不会因为任务通知发送失败而阻塞。
+
+|             函数             |                             描述                             |
+| :--------------------------: | :----------------------------------------------------------: |
+|        xTaskNotify()         | 发送通知，带有通知值并且不保留接收任务原通知值，用在任务中。 |
+|     xTaskNotifyFromISR()     |           发送通知，函数xTaskNotify()的中断版本。            |
+|      xTaskNotifyGive()       | 发送通知，不带通知值并且不保留接收任务的通知值，此函数会将接收任务的通知值加一，用于任务中。 |
+|   vTaskNotifyGiveFromISR()   |         发送通知，函数xTaskNotifyGive()的中断版本。          |
+|    xTaskNotifyAndQuery()     | 发送通知，带有通知值并且保留接收任务的原通知值，用在任务中。 |
+| XTaskNotiryAndQueryFromISR() | 发送通知，函数xTaskNotifyAndQuery()的中断版本，用在中断服务函数中。 |
+
+任务通知可以实现轻量级信号量、轻量级队列、轻量级事件组。
+
+## 定时器
+
+### 定时器三要素
+
+1. 超时时间
+
+2. 函数
+
+3. 单次触发还是周期性触发
+
+### API
+
+|   功能   |       函数名       |
+| :------: | :----------------: |
+|   创建   |    xTimerCreate    |
+|   启动   |    xTimerStart     |
+|   重置   |    xTimerReset     |
+| 改变周期 | xTimerChangePeriod |
+|   停止   |     xTimerStop     |
+
+在守护任务中执行Timer函数
+
+守护任务的优先级一定要非常高，才不会被其他任务抢占，保证定时器回调函数的执行成功。
+
+### 定时器防抖
+
+- 在中断函数中启动、复位定时器
+
+- 每次抖动都会推迟定时器的超时时间
+
+- 多次抖动只导致定时器超时一次：消除了抖动
+
+## 中断管理
+
+FreeRTOS对于任务使用的函数与中断使用的函数并不相同
+
+## 资源管理
+
+### 临界区访问
+
+#### 屏蔽中断
+
+- 任务中使用：taskENTER_CRITICAL()/taskEXIT_CRITICAL()
+- 在中断中使用：taskENTER_CRITICAL_FROM_ISR()/taskEXIT_CRITICAL_FROM_ISR()
+
+#### 暂停和恢复调度器
+
+- 暂停调度器 vTaskSuspendAll();
+
+- 恢复调度器 xTaskResumeAll();

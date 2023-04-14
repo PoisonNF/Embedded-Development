@@ -46,6 +46,8 @@
 2. 命令行尾部加&表示这个任务放到后台去执行。
 
 3. GCC编译时增加宏定义-D标识符，相当于宏定义#define 标识符，例如`gcc -DDEBUG -g -o main.out main.c`
+
+4. Linux fg命令：fg %工作号 将带有 + 号的工作恢复到前台（%工作好可以省略）
 ## Chapter1 历史和标准
 
 ## Chapter2 基本概念
@@ -996,6 +998,10 @@ outstr 中返回的字符串按照 format 参数定义的格式做了格式化�
 
 > 程序清单 10-2：返回当前时间的字符串的函数 curr_time.c
 
+![image-20230413144335533](./Linux开发.assets/image-20230413144335533.png)
+
+![image-20230413144359030](./Linux开发.assets/image-20230413144359030.png)
+
 ```c
 #define _XOPEN_SOURCE
 #include <time.h>
@@ -1105,7 +1111,7 @@ tms 结构体的前两个字段返回调用进程到目前为止使用的用户�
 clock_t clock(void);
 ```
 
-它返回一个值描述了调用进程使 用的总的 CPU 时间（包括用户和系统）。
+它返回一个值描述了调用进程使用的总的 CPU 时间（包括用户和系统）。
 
 > 程序清单 10-5：获取进程 CPU 时间 time/process_time.c
 
@@ -3141,3 +3147,515 @@ SUSv4 标记 sigterrupt()为已废止，并推荐使用 sigaction()加以替代�
 
 如果系统调用遭到阻塞，并且进程因信号（SIGSTOP、SIGTSTP、SIGTTIN 或 SIGTTOU）而停止，之后又因收到 SIGCONT 信号而恢复执行时，就会发生这种情况。
 
+## Chapter22 信号：高级特性
+
+### 核心转储文件
+
+所谓核心转储是内含进程终止时内存映像的一个文件。将该内存映像加载到调试器中，即可查明信号到达时程序代码和数据的状态。
+
+引发程序生成核心转储文件的方式之一是键入退出字符（通常为 Control-\），从而生成 SIGQUIT 信号。子线程被SIGQUIT所杀，并生成核心转储文件，在shell中显示”Quit（core dump）“的信息。
+
+核心转储文件创建于进程的工作目录中，名为 core。这是核心转储文件的默认位置和名称。
+
+#### 不产生核心转储文件的情况
+
+- 进程对于核心转储文件没有写权限。
+- 存在一个同名、可写的普通文件，但指向该文件的（硬）链接数超过一个。
+- 将要创建核心转储文件的所在目录并不存在。
+- 把进程“核心转储文件大小”这一资源限制置为 0。
+- 将进程“可创建文件的大小”这一资源限制设置为 0。
+- 对进程正在执行的二进制可执行文件没有读权限。
+- 以只读方式挂载当前工作目录所在的文件系统，或者文件系统空间已满，又或者 i-node 资源耗尽。
+- Set-user-ID（set-group-ID）程序在由非文件属主（或属组）执行时，不会产生核心转储文件。
+
+#### 为核心转储文件命名：/proc/sys/kernel/core_pattern
+
+根据 Linux 特有的/proc/sys/kernel/core_pattern 文件所包含的格式化字符串来控制对系统上生成的所有核心转储文件的命名。
+
+### 传递、处置及处理的特殊情况
+
+#### SIGKILL 和 SIGSTOP
+
+SIGKILL 信号的默认行为是终止一个进程，SIGSTOP 信号的默认行为是停止一个进程，二者的默认行为均无法改变。同样不能被阻塞。
+
+#### SIGCONT 和停止信号
+
+如果一个进程处于停止状态，那么一个 SIGCONT 信号的到来总是会促使其恢复运行，即使该进程正在阻塞或者忽略 SIGCONT 信号。
+
+#### 由终端产生的信号若已被忽略，则不应改变其信号处置
+
+如果程序在执行时发现，已将对由终端产生信号的处置置为了 SIG_IGN（忽略），那么程序通常不应试图去改变信号处置。与之相关的信号有：SIGHUP、SIGINT、SIGQUIT、SIGTTIN、 SIGTTOU 和 SIGTSTP。
+
+### 可中断和不可中断的进程睡眠状态
+
+休眠分为两种
+
+- TASK_INTERRUPTIBLE：进程正在等待某一事件。ps命令STAT（进程状态）字段标记为字母 S。
+- TASK_UNINTERRUPTIBLE：进程正在等待某些特定类型的事件，比如磁盘 I/O 的完成。ps命令STAT 字段标记为字母 D。
+
+Linux2.6.25
+
+- TASK_KILLABLE：该状态类似于 TASK_UNINTERRUPTIBLE，但是会在进程收到一个致命信号（即一个杀死进程的信号）时将其唤醒。
+
+### 硬件产生的信号
+
+硬件异常可以产生 SIGBUS、SIGFPE、SIGILL，和 SIGSEGV 信号，调用 kill()函数来发送此类信号是另一种途径，但较为少见。
+
+正确处理硬件产生信号的方法有二：要么接受信号的默认行为（进程终止）；要么为其编写不会正常返回的处理器函数。
+
+除了正常返回之外，终结处理器执行的手段还包括调用_exit() 以终止进程，或者调用 siglongjmp()，确保将控制传递回程序中（产生信号的指令位置之外）的某一位置。
+
+### 信号的同步生成和异步生成
+
+同步生成——立即传递信号，例如之前提到的硬件异常信号，使用 raise()、kill()或者 killpg()向自身发送信号。
+
+### 信号传递的时机与顺序
+
+#### 何时传递一个信号？
+
+- 进程在前度超时后，再度获得调度时（即，在一个时间片的开始处）。
+- 系统调用完成时（信号的传递可能引起正在阻塞的系统调用过早完成）。
+
+#### 解除对多个信号的阻塞时，信号的传递顺序
+
+当sigprocmask()解除了对多个等待信号的阻塞，内核会按照信号编号的升序传递信号。
+
+例如SIGINT（编号2号）总是先于SIGQUIT（编号3号）
+
+### signal()的实现与可移植性
+
+早期的signal()并不可靠
+
+1. 如果想要在同一信号再度光临再次调用信号处理器函数函数，程序员必须在信号处理器函数内部调用signal()，显式重建处理器函数
+2. 在信号处理器执行期间，不会对新产生的信号进行阻塞。同类信号会对处理器函数递归调用，过多的调用会导致堆栈溢出。
+
+#### glibc 的一些细节
+
+调用老版本不可靠语义的信号函数，可以使用sysv_signal()函数，参数与signal()相同。
+
+### 实时信号
+
+相较于标准信号，优势有：
+
+- 使用范围扩大，自定义目的，任意使用的两个信号为：SIGUSR1 和 SIGUSR2。
+- 采用队列化管理。
+- 发送实时信号，可为信号指定伴随数据（整型数或者指针值），供接收进程的信号处理器获取。
+- 不同实时信号的传递顺序得到保障。编号越小，优先级越高。
+
+Linux 内核则定义了 32 个不同的实时信号，编号范围为 32～63。
+
+程序员不能将实时信号的整型值写死，因为实时信号范围随着UNIX不同而不同，可以使用SIGRTMIN+x的形式表示。例如表达式 （SIGRTMIN + 1）就表示第二个实时信号。
+
+#### 对排队实时信号的数量限制
+
+不得少于_POSIX_SIGQUEUE_MAX（定义为 32）
+
+#### 使用实时信号
+
+- 发送进程使用 sigqueue()系统调用来发送信号及其伴随数据。
+- 要为该信号建立了一个处理器函数，接收进程应以 SA_SIGINFO 标志发起对 sigaction() 的调用。因此，调用信号处理器时就会附带额外参数，其中之一是实时信号的伴随数据。
+
+#### 发送实时信号
+
+```c
+#define _POXIX_C_SOURCE 199309
+#include <signal.h>
+int sigqueue(pid_t pid,int sig,const union sigval value);
+```
+
+使用 sigqueue()发送信号所需要的权限与 kill()的要求一致。
+
+不同于 kill()，sigqueue()不能通过将 pid 指定为负值而向整个进程组发送信号。
+
+```c
+union sigval{
+	int sival_int;		/* Inter value for accompanying data */
+	void *sival_ptr;	/* Pointer value for accompanying data */
+};
+```
+
+> 程序清单 22-2：使用 sigqueue()发送实时信号 signals/t_sigqueue.c
+
+#### 处理实时信号
+
+以用带有 3 个参数的信号处理器函数来处理实时信号，其建立则会用到 SA_SIGINFO 标志。
+
+一旦采用了 SA_SIGINFO 标志，传递给信号处理器函数的第二个参数将是一个 siginfo_t 结构，内含实时信号的附加信息。
+
+> 程序清单 22-3：处理实时信号 signals/catch_rtsigs.c
+
+### 使用掩码来等待信号：sigsuspend()
+
+```c
+#include <signal.h>
+int sigsuspend(const sitset_t *mask);
+```
+
+sigsuspend()系统调用将以 mask 所指向的信号集来替换进程的信号掩码，然后挂起进程的执行，直到其捕获到信号，并从信号处理器中返回。一旦处理器返回，sigsuspend()会将进程信号掩码恢复为调用前的值。
+
+> 使用 sigsuspend() signals/t_sigsuspend.c
+
+### 以同步方式等待信号
+
+```c
+#define _POSIX_C_SOURCE 199309
+#include <signal.h>
+int sigwaitinfo(const sigset_t *Set,siginfo_t *info);
+```
+
+sigwaitinfo()系统调用挂起进程的执行，直至 set 指向信号集中的某一信号抵达。如果调用 sigwaitinfo()时，set 中的某一信号已经处于等待状态，那么 sigwaitinfo()将立即返回。将返回信号编号作为函数结果。如果info参数不为空，会指向初始化处理的siginfo_t结构。
+
+可以省去编写信号处理器函数。
+
+> 程序清单 22-6：使用 sigwaitinfo()来同步等待信号 signals/t_sigwaitinfo.c
+
+```c
+#define _POSIX_C_SOURCE 199309
+#include <signal.h>
+int sigtimewait(const sigset_t *Set,siginfo_t *info,const struct timespec *timeout);
+```
+
+sigtimedwait()系统调用是 sigwaitinfo()调用的变体。唯一的区别是 sigtimedwait()允许指定等待时限。
+
+### 通过文件描述符来获取信号
+
+```c
+#include <sys/signalfd.h>
+int signalfd(int fd,const sigset_t *mask,int flags);
+```
+
+(非标准函数)利用该调用可以创建一个特殊文件描述符，发往调用者的信号都可从该描述符中读取。
+
+返回值为一个特殊文件描述符。如果指定fd为-1，那么 signalfd()会创建一个新的文件描述符。
+
+flag参数
+
+- SFD_CLOEXEC 为新的文件描述符设置close-on-exec
+- SFD_NONBLOCK 以确保不会阻塞未来的读操作。既省去了一个额外的 fcntl()调用，又获得了相同的结果。
+
+可以通过read()去读取signalfd_siginfo结构。
+
+> 程序清单 22-7：使用 signalfd()来读取信号 signals/signalfd_sigval.c
+
+当不再需要 signalfd 文件描述符时，应当关闭 signalfd 以释放相关内核资源。
+
+### 利用信号进行进程间通信
+
+信号是进程间通信（IPC）的方式之一，但是信号编程既繁且难。
+
+缺陷：
+
+- 信号的异步本质就意味着需要面对各种问题，可重入，竞态条件、在信号处理器中正确处理全局变量。
+- 没有对标准信号进行排队处理。
+- 携带信息有限，带宽太低。
+
+## Chapter23 定时器与休眠
+
+### 间隔定时器
+
+```c
+#include <sys/time.h>
+int setitimer(int which,const struct itimerval *new_value,struct itimerval *old_value);
+```
+
+系统调用 setitimer()创建一个间隔式定时器（interval timer)。
+
+which参数可选：
+
+- ITIMER_REAL 创建以真实时间倒计时的定时器。到期时会产生 SIGALARM 信号并发送给进程。
+- ITIMER_VIRTUAL 创建以进程虚拟时间倒计时的定时器。到期时会产生信号 SIGVTALRM。
+- ITIMER_PROF 创建一个 profiling 定时器，以进程时间倒计时。到期时，则会产生 SIGPROF 信号。
+
+对所有这些信号的默认处置（disposition）均会终止进程。
+
+参数 new_value 和 old_value 均为指向结构 itimerval 的指针
+
+```c
+struct itimerval
+{
+	struct timeval it_interval;		/* Interval for periodic timer */
+	struct timeval it_value;		/* Current value */
+}
+```
+
+参数 new_value 的下属结构 it_value 指定了距离定时器到期的延迟时间。另一下属结构 it_interval 则说明该定时器是否为周期性定时器。如果it_interval的两个字段都是0，说明是一次性定时器，两者之一不为0，就是周期性定时器。
+
+进程只能有上述3种定时器中的一种。修改已有定时器需要符合参数which中的类型。new_value.it_value字段置为0，将会屏蔽任何已有的定时器。
+
+若参数 old_value 不为 NULL，则以其所指向的 itimerval 结构来返回定时器的前一设置。
+
+```c
+#include <sys/time.h>
+int getitimer(int which,struct itimerval *curr_value);
+```
+
+系统调用 getitimer()返回由 which 指定定时器的当前状态，并置于由 curr_value 所指向的缓冲区中。
+
+> SUSv4 废止了 getitimer()和 setitimer()，同时推荐使用 POSIX 定时器 API（23.6 节）。
+
+> 程序清单 23-1：实时定时器的使用 timers/real_timer.c
+
+#### 更为简单的定时器接口 alarm()
+
+```c
+#include <unistd.h>
+unsigned int alarm(unsigned int seconds);
+```
+
+一次性定时器。参数seconds为定时器到期的秒数，到期会发送SIGALRM，返回值为前一设置剩余秒数。
+
+调用 alarm(0)可屏蔽现有定时器。
+
+#### setitimer()和 alarm()之间的交互
+
+Linux中，alarm()和setitimer()在同一进程中共享同一实时定时器。都可以改变定时器设置。
+
+### 定时器的调度及精度
+
+传统意义上定时器精度受软件时钟频率的影响，如果不能与其倍数匹配，将向上取整。例如19毫秒的定时器，jiffy（软件时钟周期）为4毫秒，定时器将20毫秒过期一次。
+
+#### 高分辨率定时器
+
+现代Linux内核不在受软件时钟影响。Linux 内核可选择是否支持高分辨率定时器。如果选择支持（通过内核配置选项 CONFIG_HIGH_RES_TIMERS），那么本章各种定时器以及休眠接口的的精度则不再受内核 jiffy（软件时钟周期）的影响，可以达到底层硬件所支持的精度。
+
+### 为阻塞操作设置超时
+
+实时定时器的用途之一是为某个阻塞系统调用设置其处于阻塞状态的时间上限。
+
+> 程序清单 23-2：运行设置了超时的 read()  timers/timed_read.c
+
+### 暂停运行（休眠）一段固定时间
+
+#### 低分辨率休眠：sleep()
+
+```c
+#include <unistd.h>
+unsigned int sleep(unsigned int seconds);
+```
+
+如果休眠正常结束，sleep()返回 0。如果因信号而中断休眠，sleep()将返回剩余（未休眠） 的秒数。
+
+#### 高分辨率休眠：nanosleep()
+
+```c
+#define _POSIX_C_SOURCE 199309
+#include <time.h>
+int nanosleep(const struct timespec *request,struct timespec *remain);
+```
+
+参数 request 指定了休眠的持续时间，其中tv_nsec 字段为纳秒值，取值范围在 0～999999999 之间。
+
+该函数也可以被中断，此时返回值为-1，并且将errno置为EINTR。若参数remain不为NULL，则剩余时间放入该结构中。
+
+### POSIX 时钟
+
+Linux 中，调用此 API 的程序必须以==-lrt== 选项进行编译，从而与 librt（realtime，实时）函数库相链接。
+
+#### 获取时钟的值：clock_gettime()
+
+```c
+#define _POSIX_C_SOURCE 199309
+#include <time.h>
+int clock_gettime(clockid_t clockid,struct timespec *tp);
+int clock_getres(clockid_t clockid,struct timespec *res);
+```
+
+clock_gettime()获取时钟当前值
+
+clock_getres()返回时钟分辨率
+
+|          时钟ID          |                   描述                   |
+| :----------------------: | :--------------------------------------: |
+|      CLOCK_REALTIME      |          可设定的系统级实时时钟          |
+|     CLOCK_MONOTONIC      |           不可设定的恒定态时钟           |
+| CLOCK_PROCESS_CPUTIME_ID | 每进程 CPU 时间的时钟（自 Linux 2.6.12） |
+| CLOCK_THREAD_CPUTIME_ID  | 每线程 CPU 时间的时钟（自 Linux 2.6.12） |
+
+#### 设置时钟的值：clock_settime() 
+
+```c
+#define _POSIX_C_SOURCE 199309
+#include <time.h>
+int clock_settime(clockid_t clockid,const struct timespec *tp);
+```
+
+系统调用 clock_settime()利用参数 tp 所指向缓冲区中的时间来设置由 clockid 指定的时钟。
+
+特权级进程可以设置CLOCK_REALTIME时钟。
+
+#### 获取特定进程或线程的时钟 ID
+
+```c
+#define _XOPEN_SOURCE 600
+#include <time.h>
+int clock_getcpuclockid(pid_t pid,clockid_t *clockid);
+```
+
+参数 pid 为 0 时，clock_getcpuclockid()返回调用进程的 CPU 时间时钟 ID。
+
+```c
+#define _XOPEN_SOURCE 600
+#include <pthread.h>
+#include <time.h>
+int pthread_getcpuclockid(pthread_t thread,clockid_t *clockid);
+```
+
+参数 thread 是 POSIX 线程 ID，用于指定希望获取的 CPU 时钟 ID 所从属的线程。返回的时钟 ID 存放于 clockid 指针所指向的缓冲区中。
+
+#### 高分辨率休眠的改进版：clock_nanosleep() 
+
+该函数为Linux特有
+
+```c
+#define _XOPEN_SOURCE 600
+#include <time.h>
+int clock_nanosleep(clockid_t clockid,int flags,
+					const struct timespec *request,struct timespec *remain);
+```
+
+参数 request 及 remain 同 nanosleep()中的对应参数目的相似。
+
+默认情况下（即 flags 为 0），由 request 指定的休眠间隔时间是相对时间（类似于 nanosleep()）。
+
+如果flag参数设置了TIMER_ABSTIME，request 则表示 clockid 时钟所测量的绝对时间。
+
+指定TIMER_ABSTIME 时，不再（且不需要）使用参数 remain。如果信号处理器程序中断了 clock_nanosleep()调用，再次调用该函数来重启休眠时，request 参数不变。
+
+**使用原因：**适用于需要准确定时的应用程序。如果只是先获取当前时间，计算与目标时间的差距，再以相对时间进行休眠，进程可能执行 到一半就被占先了，结果休眠时间比预期的要久。
+
+### POSIX 间隔式定时器
+
+之前的间隔定时器，都是经典UNIX中的。
+
+接下来时POSIX.1b的定时器。
+
+- 以系统调用 timer_create()创建一个新定时器，并定义其到期时对进程的通知方法。
+- 以系统调用 timer_settime()来启动或停止一个定时器。
+- 以系统调用 timer_delete()删除不再需要的定时器。
+
+#### 创建定时器：timer_create() 
+
+```c
+#define _POSIX_C_SOURCE 199309
+#include <signal.h>
+#include <time.h>
+int timer_create(clockid_t clockid,struct sigevent *evp,timer_t *timerid);
+```
+
+设置参数 clockid,可以使用表格中的，也可以使用clock_getcpuclocid()或 pthread_getcpuclockid()返回的 clockid 值。
+
+参数timerid是函数返回时放置句柄。供后续调用使用。
+
+参数evp可以决定定时器到期对应用程序的通知方式。
+
+![image-20230413105253346](./Linux开发.assets/image-20230413105253346.png)
+
+将参数 evp 置为 NULL，这相当于将 sigev_notify 置为 SIGEV_SIGNAL，同时将 sigev_signo置为 SIGALRM
+
+#### 配备和解除定时器：timer_settime()
+
+```c
+#define _POSIX_C_SOURCE 199309
+#include <time.h>
+int timer_settime(timer_t timerid,int flags,const struct itimerspec *value,
+				struct itimerspec *old_value);
+```
+
+函数 timer_settime()的参数 timerid 是句柄，由之前对 timer_create()的调用返回。
+
+参数 value 和 old_value 则类似于函数 setitimer()的同名参数。
+
+若将 flags 置为 0，则会将 value.it_value 视为始于 timer_settime()相对值。
+
+如果将 flags 设为 TIMER_ABSTIME，那么 value.it_value 则是一个绝对时间。
+
+#### 获取定时器的当前值：timer_gettime() 
+
+```c
+#define _POSIX_C_SOURCE 199309
+#include <time.h>
+int timer_gettime(timer_t timerid,struct itimerspec *curr_value);
+```
+
+curr_value 指针所指向的 itimerspec 结构中返回的是时间间隔以及距离下次定时器到期的时间。
+
+#### 删除定时器：timer_delete()
+
+```c
+#define _POSIX_C_SOURCE 199309
+#include <time.h>
+int timer_delete(timer_t timerid);
+```
+
+每个 POSIX 定时器都会消耗少量系统资源。所以，一旦使用完毕，应当用 timer_delete()来移除定时器并释放这些资源。
+
+> 程序清单 23-5：使用信号进行 POSIX 定时器通知 timers/ptmr_sigev_signal.c
+>
+> 程序清单 23-6：将“时间+间隔”的字符串转换为 itimerspec 的值 timers/itimerspec_from_str.c
+
+所用到的strchr()函数。char *strchr(const char *str, int c)
+
+在参数 **str** 所指向的字符串中搜索第一次出现字符 **c**（一个无符号字符）的位置。
+
+#### 定时器溢出
+
+```c
+#define _POSIX_C_SOURCE 199309
+#include <time.h>
+int timer_getoverrun(timer_t timerid);
+```
+
+如何获取定时器溢出值：
+
+- 调用timer_getoverrun()
+- 使用随信号一同返回的结构 siginfo_t 中的 si_overrun 字段值。但此方法时Linux的拓展方法，无法移植。
+
+#### 通过线程来通知
+
+SIGEV_THREAD 标志允许程序从一个独立的线程中调用函数来获取定时器到期通知。
+
+> 程序清单 23-7：使用线程函数发送 POSIX 定时器通知 timers/ptmr_sigev_thread
+
+### 利用文件描述符进行通知的定时器：timerfd API 
+
+Linux特有的API。
+
+```c
+#include <sys/timerfd.h>
+int timerfd_create(int clockid,int flags);
+```
+
+创建一个定时器对象，返回指代对象的文件描述符。
+
+参数flags可以设置为：TFD_CLOEXEC、TFD_NONBLOCK
+
+使用完成之后应当使用close()关闭对应的文件描述符。
+
+```c
+#include <sys/timerfd.h>
+int timerfd_settime(int fd,int flags,const struct itimerspec *new_value,
+					struct itimerspec *old_value);
+```
+
+设置或者修改定时器。
+
+参数new_value为定时器指定新设置。参数 old_value 可用来返回定时器的前一设置。
+
+参数flag可以是0，也可以是为 TFD_TIMER_ABSTIME，绝对时间。
+
+```c
+ #include <sys/timerfd.h>
+ int timerfd_gettime(int fd,struct itimerspec *curr_value);
+```
+
+系统调用 timerfd_gettime()返回文件描述符 fd 所标识定时器的间隔及剩余时间。放入curr_value指向的结构体中。
+
+#### timerfd 与 fork()及 exec()之间的交互
+
+调用 fork()期间，子进程会继承 timerfd_create()所创建文件描述符的拷贝。这些描述符与父进程的对应描述符均指代相同的定时器对象，任一进程都可读取定时器的到期信息。
+
+#### 从 timerfd 文件描述符读取
+
+使用read()，需要缓冲区足够容纳一个无符号8字节整型（uint64_t)
+
+> 程序清单 23-8：使用 timerfd API timers/demo_timerfd.c
