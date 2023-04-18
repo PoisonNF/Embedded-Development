@@ -3659,3 +3659,373 @@ int timerfd_settime(int fd,int flags,const struct itimerspec *new_value,
 使用read()，需要缓冲区足够容纳一个无符号8字节整型（uint64_t)
 
 > 程序清单 23-8：使用 timerfd API timers/demo_timerfd.c
+
+## Chapter24 进程的创建
+
+### fork()、exit()、wait()以及 execve()的简介
+
+- fork()：允许一个进程创建一个新进程。子进程是父进程的翻版。
+
+- exit(status)：终于一进程，释放所有资源。
+
+- wait(&staus): 
+
+    其一，如果子进程尚未调用 exit()终止，那么 wait() 会挂起父进程直至子进程终止；
+
+    其二，子进程的终止状态通过 wait()的 status 参数返回。
+
+- execve(pathname，argv，envp): 
+
+    加载一个新程序（路径名为 pathname，参数列表为 argv，环境变量列表为 envp）到当前进程的内存。
+
+在某些操作系统中中会将fork和exec合并成spawn
+
+![image-20230414110544903](./Linux开发.assets/image-20230414110544903.png)
+
+### 创建新进程：fork()
+
+```c
+#include <unistd.h>
+pid_t fork(void);
+```
+
+系统调用 fork()创建一新进程（child），几近于对调用进程（parent）的翻版。
+
+完成对其调用后将存在两个进程，且每个进程都会从 fork() 的返回处继续执行。
+
+两个进程执行相同的程序文本段，拥有不同的栈、数据段、堆拷贝。刚创建时是父进程的完全拷贝。
+
+在父进程中，fork()返回新创建子进程的进程ID，在子进程中，返回0。
+
+调用fork()后，系统先调度哪个进程是不确定的。
+
+调用fork()，采用以下习惯用语
+
+```c
+pid_t childPid;
+
+switch(childPid = fork())
+{
+	case -1:
+		/* 创建失败 */
+	
+	case 0:
+		/* 子进程动作 */
+	
+	default:
+		/* 父进程动作 */
+}
+```
+
+> 程序清单 24-1：调用 fork() procexec/t_fork.c
+
+#### 24.2.1 父、子进程间的文件共享
+
+调用fork()后，子进程会获得父进程的文件描述符副本。如果子进程更新了文件偏移量，那么这种改变也会影响到父进程中相应的描述符。
+
+> 程序清单 24-2：在父子进程间共享文件偏移量和打开文件状态标志 procexec/fork_file_sharing.c
+
+如果不需要这种对文件描述符的共享方式，需要在调用后注意两点
+
+1. 令父、子进程使用不同的文件描述符
+2. 各自立即关闭不再使用的描述符（亦即那些经由其他进程使用的描述符）
+
+#### fork()的内存语义
+
+对于父进程数据段、堆段和栈段中的各页，内核采用写时复制（copy-on-write）技术来处理。
+
+必须将 func()的返回结果置于 exit()的 8 位传出值中，父进程调用 wait()可获得该值。可以使用其他IPC方式传递。
+
+### 系统调用 vfork() 
+
+```c
+#include <unistd.h>
+pid_t vfork();
+```
+
+类似于 fork()，vfork()可以为调用进程创建一个新的子进程。然而，vfork()是为子进程立即执行 exec()的程序而专门设计的。
+
+- 子进程共享父进程的内存，直至其成功 执行了 exec()或是调用_exit()退出。
+- 在子进程调用 exec()或_exit()之前，将暂停执行父进程。
+
+vfork()必能保证子进程先于父进程获得调度以使用 CPU。就算是使用了sleep()。
+
+不推荐使用！
+
+> 程序清单 24-4：使用 vfork() procexec/t_vfork.c
+
+### fork()之后的竞争条件（Race Condition）
+
+调用fork后，调度顺序不定，可以使用该程序来生成大量子进程，并且分析其输出，观察父、子进程间每次到底由谁率先输出了结果。
+
+在 Linux 2.2.19 中，fork()之后总是继续执行父进程。（大约99.97%）
+
+> 程序清单 24-5：fork()之后，父、子进程竞争输出信息 procexec/fork_whos_on_first.c
+
+### 同步信号以规避竞争条件
+
+> 程序清单 24-6：利用信号来同步进程间动作 procexec/fork_sig_sync.c
+
+## Chapter25 进程的终止
+
+### 进程的终止：_exit()和 exit()
+
+```c
+#include <unistd.h>
+void _exit(int status);
+```
+
+_exit()的 status 参数定义了进程的终止状态（termination status），父进程可调用 wait() 以获取该状态。
+
+EXIT_SUCCESS(0)和 EXIT_FAILURE(1)
+
+调用\_exit()的程序总会成功终止（即，_exit()从不返回）。
+
+```c
+#include <stdlib.h>
+void exit(int status);
+```
+
+程序一般不会直接调用\_exit()，而是调用库函数 exit()，它会在调用_exit()前执行各种动作。
+
+exit()会执行以下动作：
+
+- 调用退出处理程序，其执行顺序与注册顺序相反
+- 刷新 stdio 流缓冲区
+- 使用由 status 提供的值执行_exit()系统调用
+
+### 进程终止的细节
+
+- 关闭所有打开文件描述符、目录流、信息目录描述符、转换描述符
+- 释放该进程所持有的任何文件锁
+- 分离任何已连接的 System V 共享内存段
+- 进程为每个 System V 信号量所设置的 semadj 值将会被加到信号量值中
+- 如果该进程是一个管理终端，那么系统会向该终端前台进程组中的每个进程发送 SIGHUP 信号
+- 将关闭该进程打开的任何 POSIX 有名信号量
+- 将关闭该进程打开的任何 POSIX 消息队列
+- 如果某进程组成为孤儿，且该组中存在任何已停止进程，则组中所有进程都将收到 SIGHUP 信号，随之为 SIGCONT 信号
+- 移除该进程通过 mlock()或 mlockall()建立的任何内存锁
+- 取消该进程调用 mmap()所创建的任何内存映射
+
+### 退出处理程序
+
+退出处理程序是一个由程序设计者提供的函数，可于进程生命周期的任意时点注册，并在该进程调用 exit()正常终止时自动执行。
+
+#### 注册退出处理程序
+
+```c
+#include <stdlib.h>
+int atexit(void (*func)(void));
+```
+
+函数 atexit()将 func 加到一个函数列表中，进程终止时会调用该函数列表的所有函数。
+
+函数 func 定义为不接受任何参数，也无返回值
+
+```c
+void func(void)
+{
+	/* Perform some actions */
+}
+```
+
+注意 atexit()在出错时返回非 0 值（不一定是-1）。
+
+可以注册多个退出处理程序（甚至可以将同一函数注册多次）。当应用程序调用 exit()时，这些函数的执行顺序与注册顺序相反。
+
+SUSv3 要求系统实现应允许一个进程能够注册至少 32 个退出处理程序。使用sysonf(_SC_ATEXIT_MAX)查看
+
+对于 Linux，sysonf(_SC_ATEXIT_MAX)返回 2147482647。
+
+通过 fork()创建的子进程会继承父进程注册的退出处理函数。进程调用exec()时，会移除所有已经注册的退出处理函数。
+
+atexit()注册的退出处理程序会受到两种限制：
+
+1. 退出处理程序在执行时无法获知传递给 exit()的状态。
+2. 无法给退出处理程序指定参数。
+
+```c
+#define _BSD_SOURCE
+#include <stdlib.h>
+int on_exit(void(*func)(int,void *),void *arg);
+```
+
+函数 on_exit()的参数 func 是一个指针，指向如下类型的函数: 
+
+```c
+void func(int status,void *arg)
+{
+	/* Perform cleanup actions */
+}
+```
+
+虽然比 atexit()更灵活，但对于要保障可移植性的程序来说，还是应避免使用 on_exit()。
+
+注意 on_exit()在出错时返回非 0 值（不一定是-1）。
+
+> 程序清单 25-1：使用退出处理程序 procexec/exit_handlers.c
+
+### fork()、stdio 缓冲区以及_exit()之间的交互
+
+> 程序清单 25-2：fork()与 stdio 缓冲区的交互 procexec/fork_stdio_buf.c
+
+**奇怪现象：**printf()的输出行出现了两次，且 write()的输出先于 printf()。
+
+当标准输出定向到终端时，因为缺省为行缓冲，所以会立即显示函数 printf()输出的包含换行符的字符串。
+
+当标准输出重定向到文件时，由于缺省为块缓冲，当调用 fork()时，printf()输出的字符串仍在父进程的 stdio 缓冲区中，并随子进程的创建而产生一份副本。父、子进程调用 exit()时会刷新各自的 stdio 缓冲区，从而导致重复的输出结果。
+
+可以采取以下方法解决：
+
+1. 可以在调用 fork()之前使用函数 fflush() 来刷新 stdio 缓冲区。作为另一种选择，也可以使用 setvbuf()和 setbuf()来关闭 stdio 流的缓冲功能
+2. 子进程可以调用_exit()而非 exit()，以便不再刷新 stdio 缓冲区。
+
+write()的输出并未出现两次，这是因为 write()会将数据直接传给内核缓冲区，fork()不会复制这一缓冲区。
+
+## Chapter26 监控子进程
+
+### 等待子进程
+
+#### 系统调用 wait()
+
+```c
+#include <sys/wait.h>
+pid_t wait(int *status);
+```
+
+系统调用 wait()等待调用进程的任一子进程终止，同时在参数 status 所指向的缓冲区中返回该子进程的终止状态。
+
+wait()返回-1。可能的错误原因之一是调用进程并无之前未被等待的子进程，此时会将 errno 置为 ECHILD。可以通过此特性来鉴别是否所有子进程都成功退出。
+
+> 程序清单 26-1：创建并等待多个子进程 procexec/multi_wait.c
+
+#### 系统调用 waitpid()
+
+waitpid()有许多优势，例如可以等待特定的子进程完成，同时可以非阻塞等待。
+
+```c
+#include <sys/wait.h>
+pid_t waitpid(pid_t pid,int *status,int options);
+```
+
+参数 pid 用来表示需要等待的具体子进程
+
+- 如果 pid 大于 0，表示等待进程 ID 为 pid 的子进程。
+- 如果 pid 等于 0，则等待与调用进程同一个进程组的所有子进程。
+- 如果 pid 小于-1，则会等待进程组标识符与 pid 绝对值相等的所有子进程
+- 如果 pid 等于-1，则等待任意子进程
+
+参数options以下几种，可以或操作。
+
+WUNTRACED 除了返回终止子进程的信息外，还返回因信号而停止的子进程信息
+
+WCONTINUED 返回那些因收到 SIGCONT 信号而恢复执行的已停止子进程的状态信息
+
+WNOHANG 如果参数 pid 所指定的子进程并未发生状态改变，则立即返回，而不会阻塞，此时返回值为0
+
+#### 等待状态值
+
+![image-20230417100644123](./Linux开发.assets/image-20230417100644123.png)
+
+头文件定义了用于解析等待状态值的一组标准宏。
+
+- WIFEXITED (status)  若子进程正常结束则返回真（true）
+- WIFSIGNALED (status) 若通过信号杀掉子进程则返回真（true）
+- WIFSTOPPED (status)  若子进程因信号而停止，则此宏返回为真值（true）
+- WIFCONTINUED (status) 若子进程收到 SIGCONT 而恢复执行，则此宏返回真值（true)。
+- （SUSv3未规范）WCOREDUMP(status) 子进程产生内核转储文件，返回真值（true）
+
+> 程序清单 26-2：输出 wait()及相关调用返回的状态值 procexec/print_wait_status.c
+>
+> 程序清单 26-3：使用 waitpid()获取子进程状态 proexec/child_status.c
+
+#### 从信号处理程序中终止进程
+
+如果需要通知父进程自己因某个信号而终止，那么子进程的信号处理程序应首先将自己废除，然后再次发出相同信号，该信号这次将终止这一子进程。
+
+```c
+void handler(int sig)
+{
+	/* Perform cleanup steps */
+	signal(sig,SIG_DFL);	/* Disestablish handler */
+	raise(sig);				/* Raise signal again */
+}
+```
+
+#### 系统调用 waitid() 
+
+```c
+#include <sys/wait.h>
+int waitid(idtype_t idtype,id_t id,siginfo_t *infop,int options);
+```
+
+waitid()提供了 waitpid()所没有的扩展功能。
+
+参数idtype和id指定等待哪些进程
+
+- 如果 idtype 为 P_ALL，则等待任何子进程，同时忽略 id 值
+- 如果 idtype 为 P_PID，则等待进程 ID 为 id 进程的子进程
+- 如果 idtype 为 P_PGID，则等待进程组 ID 为 id 各进程的所有子进程
+
+参数options与waitpid()相同
+
+执行成功，waitid()返回 0，且会更新指针 infop 所指向的 siginfo_t 结构，以包含子进程的相关信息。
+
+#### 系统调用 wait3()和 wait4()
+
+增加了参数 rusage，所指向的结构中返回终止子进程的资源使用情况。
+
+现在已经过时，避免使用。
+
+### 孤儿进程与僵尸进程
+
+进程 ID 为 1 的众进程之祖—init 会接管孤儿进程。(父进程先终止，孤儿进程)
+
+在父进程执行 wait()之前，其子进程就已经终止（子进程先终止，子进程转为僵尸进程）
+
+僵尸进程即便是SIGKILL也无法杀死，保证父进程可以执行wait()
+
+父进程应执行 wait()方法，以确保系统总是能够清理那些死去的子进程，避免使其成为长寿僵尸。
+
+> 程序清单 26-4：创建一个僵尸子进程 procexec/make_zombie.c
+
+### SIGCHLD 信号
+
+两种解决僵尸进程的方法：
+
+1. 父进程调用不带 WNOHANG 标志的 wait()，或 waitpid()方法，阻塞等待
+2. 父进程周期性地调用带有 WNOHANG 标志的 waitpid()，非阻塞轮询
+
+但是两种方法都不是很好，可以采用针对SIGCHLD信号的处理程序。
+
+#### 为 SIGCHLD 建立信号处理程序
+
+SIGCHILD 信号处理程序正在为一个终止的子进程运行时，如果同时有两个子进程终止，发送两次 SIGCHLD 信号，但是父进程只调用了一次，这样会存在漏网之鱼。
+
+解决方案是：在 SIGCHLD 处理程序内部循环以 WNOHANG 标志来调用 waitpid()，直至再无其他终止的子进程需要处理为止。
+
+```c
+while(waitpid(-1,NULL,WNOHANG) > 0)
+	continue;
+```
+
+上述循环会一直持续下去，直至 waitpid()返回 0，表明再无僵尸子进程存在，或-1，表示有错误发生（可能是 ECHILD，意即再无更多的子进程）
+
+#### SIGCHLD 处理程序的设计问题
+
+需要考虑可重入性问题，特别是errno的值。
+
+> 程序清单 26-5：通过 SIGCHLD 信号处理程序捕获已终止的子进程 procexec/multi_sigchld.c
+
+#### 向已停止的子进程发送 SIGCHLD 信号
+
+如果需要在子进程停止时不发出SIGCHLD信号，可以在调用sigaction()设置SIGCHLD信号处理程序时，传入SA_NOCLDSTOP标志。
+
+#### 忽略终止的子进程
+
+将对 SIGCHLD 的处置（disposition）显式置为 SIG_ IGN，系统从而会将其后终止的子进程立即删除，毋庸转为僵尸进程。
+
+#### sigaction()的 SA_NOCLDWAIT 标志
+
+调用 sigaction()时可以设置SA_NOCLDWAIT 标志，设置该标志的作用类似于将对 SIGCHLD 的处置置为 SIG_IGN 时的效果。
+
