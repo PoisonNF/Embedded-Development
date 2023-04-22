@@ -19,11 +19,25 @@
 
 ## CMSIS_V1和CMSIS_V2的区别
 
-使用STM32CubeMx生成代码时，可以选择两者之一的版本。
+使用STM32CubeMX生成代码时，可以选择两者之一的版本。
 
 V2版本相比于V1具有更多的功能，占用的RAM和FLASH也更多。
 
 主要是增加了以os前缀的API，封装了FreeRTOS的原生接口。
+
+## CMSIS RTOS相关
+
+CMSIS-RTOS是ARM公司为统一操作系统、降低嵌入式门槛而发布的操作系统标准软件接口。通俗讲，CMSIS-RTOS将操作系统（不管是FREE-RTOS还是RTX等）屏蔽起来，然后提供CMSIS-RTOS接口函数给最终使用者调用。
+
+[CMSIS-RTOS教程中文版_hongprove的博客-CSDN博客](https://blog.csdn.net/hongprove/article/details/104605422)
+
+[一起来学习 系统封装接口层- CMSIS-OS 之freeRTOS_cmsis os_Eric_jhb的博客-CSDN博客](https://blog.csdn.net/u014572382/article/details/78540398)
+
+[RTOS内功修炼记（八）— CMSIS RTOS API，内核通用API接口 - 腾讯云开发者社区-腾讯云 (tencent.com)](https://cloud.tencent.com/developer/article/1673177)
+
+[第十一章 CMSIS-RTOS2消息队列_osmessagequeueput_LiuhCode的博客-CSDN博客](https://blog.csdn.net/rootcode/article/details/106801936)
+
+[CMSIS信号与信号量探索_ossemaphoredef_墨迹打铁匠的博客-CSDN博客](https://blog.csdn.net/weixin_44007438/article/details/114329210)
 
 ## FreeRTOS的移植
 
@@ -258,7 +272,7 @@ errQUEUE_FULL: 队列已经满了，消息发送失败。
 
 ### 创建
 
-|          |              二进制信号量               |          技术型信号量          |
+|          |              二进制信号量               |          计数型信号量          |
 | :------: | :-------------------------------------: | :----------------------------: |
 | 动态创建 |         xSemaphoreCreateBinary          |    xSemaphoreCreateCounting    |
 |          | vSemaphoreCreateBinary(初始为1，已过时) |                                |
@@ -390,4 +404,4 @@ FreeRTOS对于任务使用的函数与中断使用的函数并不相同
 
 - 暂停调度器 vTaskSuspendAll();
 
-- 恢复调度器 xTaskResumeAll();
+- 恢复调度器 xTaskResumeAll(); 

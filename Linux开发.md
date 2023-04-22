@@ -4029,3 +4029,254 @@ while(waitpid(-1,NULL,WNOHANG) > 0)
 
 调用 sigaction()时可以设置SA_NOCLDWAIT 标志，设置该标志的作用类似于将对 SIGCHLD 的处置置为 SIG_IGN 时的效果。
 
+## Chapter27 程序的执行
+
+### 执行新程序：execve() 
+
+系统调用 execve()可以将新程序加载到某一进程的内存空间。新程序会从 main()函数处开始执行。
+
+```c
+#include <unistd.h>
+int execve(const char *pathname,char *const argv[],char *const envp[]);
+```
+
+参数 pathname 包含准备载入当前进程空间的新程序的路径名，可以绝对路径或者是相对路径。
+
+参数 argv 则指定了传递给新进程的命令行参数。最后一位为NULL。
+
+最后一个参数 envp 指定了新程序的环境列表。
+
+execve()永远返回-1，可以通过errno判断错误。
+
+- EACCES 参数 pathname 没有指向一个常规（regular）文件，没有可执行权
+- ENOENT pathname 所指代的文件并不存在
+- ENOEXEC 系统无法识别其文件格式
+- ETXTBSY 存在一个或多个进程已经以写入方式打开 pathname 所指代的文件
+- E2BIG 参数列表和环境列表所需空间总和超出了允许的最大值
+
+> 程序清单 27-1：调用函数 execve()来执行新程序 proexec/t_execve.c
+>
+> 程序清单 27-2：显示参数列表和环境列表 proexec/envargs.c
+
+### exec()库函数
+
+```c
+#include <unistd.h>
+int execl(const char *path, const char *arg, ...);
+int execlp(const char *file, const char *arg, ...);
+int execle(const char *path, const char *arg, ..., char * const envp[]);
+int execv(const char *path, char *const argv[]);
+int execvp(const char *file, char *const argv[]);
+int execve(const char *path, char *const argv[], char *const envp[]);
+```
+
+![image-20230419104749167](./Linux开发.assets/image-20230419104749167.png)
+
+#### 环境变量PATH
+
+函数 execvp()和 execlp()允许调用者只提供欲执行程序的文件名。通过环境变量PATH搜索。
+
+PATH 的值是一个以冒号（：）分隔。
+
+```shell
+bcl@bcl-virtual-machine:~/Desktop$ echo $PATH
+/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/home/bcl/.dotnet/tools
+```
+
+> 程序清单 27-3：使用 execlp()在 PATH 中搜索文件 procexec/t_execlp.c
+
+#### 将程序参数指定为列表
+
+相比于装配到argv向量中，代码更少，便于使用。下面程序功能与程序清单 27-1 相同
+
+> 程序清单 27-4：使用 execle()，将程序参数指定为列表 procexec/t_execle.c
+
+#### 将调用者的环境传递给新程序
+
+新程序的环境继承自调用进程。
+
+> 程序清单 27-5：调用函数 execl()，将调用者的环境传递给新程序 procexec/t_execl.c
+
+#### 执行由文件描述符指代的程序：fexecve() 
+
+```c
+#define _GNU_SOURCE
+#include <unistd.h>
+int fexecve(int fd,char *const argv[],char *const envp[]);
+```
+
+### 解释器脚本
+
+脚本必须有可执行权限，文件的起始行必须指定运行脚本解释器的路径名。
+
+例如#! interpreter-path [optional-arg] 一般应采用绝对路径
+
+UNIX shell 脚本: #!/bin/sh
+
+#### 解释器脚本的执行
+
+使用execve()运行
+
+execve()如果检测到传入的文件以两字节序列“#!”开始，就会析取该行的剩余部分
+
+![image-20230420102739174](./Linux开发.assets/image-20230420102739174.png)
+
+#### 使用脚本的 optional-arg（可选参数）
+
+optional-arg 的用途之一是为解释器指定命令行参数。
+
+### 文件描述符与 exec()
+
+由 exec()的调用程序所打开的所有文件描述符在 exec()的执行过程中会保持打开状态，且在新程序中依然有效。
+
+#### 执行时关闭（close-on-exec）标志（FD_CLOEXEC）
+
+通过fcntl()的F_GETFD获取文件描述符标志的一份拷贝，然后使用fcntl()的F_SETFD修改FD_CLOEXEC 位
+
+> 程序清单 27-6：为一文件描述符设置执行时关闭标志 procexec/closeonexec.c
+
+在命令行有参数时，为标准输出设置执行时关闭标志。
+
+### 执行 shell 命令：system()
+
+```c
+#include <stdlib.h>
+int system(const char *command);
+```
+
+> 程序清单 27-7：通过 system()执行 shell 命令 procexec/t_system.c
+
+#### 在设置用户 ID（set-user-ID）和组 ID（set-group-ID）程序中避免使用 system() 
+
+### system()的实现
+
+#### 对 system()的简化实现
+
+> 程序清单 27-8：一个缺乏信号处理的 system()实现 proexec/simple_system.c
+
+#### 在 system()内部正确处理信号
+
+system()在运行期间必须阻塞 SIGCHLD 信号
+
+其他需要关注的信号则是分别由终端的中断、退出所产生的SIGINT 和 SIGQUIT 信号
+
+需要system("sleep 20");
+
+#### system()实现的改进版
+
+> 程序清单 27-9：system()的实现 procexec/system.c
+
+#### 关于 system()的更多细节
+
+确保在将对 SIGCHLD 的处置置为 SIG_IGN 的情况下不去调用 system()，因为此时waitpid()将无法获取子进程的状态。
+
+## Chapter28 详述进程创建和程序执行
+
+### 进程记账
+
+账单记录包含了内核为该进程所维护的多种信息，包括终止状态以及进程消耗的 CPU 时间。
+
+Linux 系统的进程记账功能属于可选内核组件，可以通过 CONFIG_BSD_PROCESS_  ACCT 选项进行配置。
+
+#### 打开和关闭进程记账功能
+
+```c
+#define _BSD_SOURCE
+#include <unistd.h>
+int acct(const char *acctfile);
+```
+
+为了打开进程账单功能，需要在参数 acctfile 中指定一个现有常规文件的路径名。
+
+通常的路径名是/var/log/pacct 或/usr/account/pacct
+
+关闭进程记账功能，则指定 acctfile 为 NULL 即可。
+
+> 程序清单 28-1：打开和关闭进程记账功能 procexec/acct_on.c
+
+#### 进程账单记录
+
+每当一进程终止时，就会有一条 acct 记录写入记账文件。acct结构体位于<sys/acct.h>头文件中。
+
+```c
+struct acct
+{
+  char ac_flag;			/* Flags.  */
+  uint16_t ac_uid;		/* Real user ID.  */
+  uint16_t ac_gid;		/* Real group ID.  */
+  uint16_t ac_tty;		/* Controlling terminal.  */
+  uint32_t ac_btime;		/* Beginning time.  */
+  comp_t ac_utime;		/* User time.  */
+  comp_t ac_stime;		/* System time.  */
+  comp_t ac_etime;		/* Elapsed time.  */
+  comp_t ac_mem;		/* Average memory usage.  */
+  comp_t ac_io;			/* Chars transferred.  */
+  comp_t ac_rw;			/* Blocks read or written.  */
+  comp_t ac_minflt;		/* Minor pagefaults.  */
+  comp_t ac_majflt;		/* Major pagefaults.  */
+  comp_t ac_swaps;		/* Number of swaps.  */
+  uint32_t ac_exitcode;		/* Process exitcode.  */
+  char ac_comm[ACCT_COMM+1];	/* Command name.  */
+  char ac_pad[10];		/* Padding bytes.  */
+};
+```
+
+![image-20230422103237563](./Linux开发.assets/image-20230422103237563.png)
+
+> 程序清单 28-2：显示进程记账文件中的数据 procexec/acct_view.c
+
+#### 进程记账文件格式（版本 3）
+
+需要在编译内核前打开内核配置选项 CONFIG_BSD_PROCESS_ACCT_V3
+
+- 增加 ac_version 字段。该字段包含本类型账单记录的版本号。
+- 增加 ac_pid 和 ac_ppid 字段，分别包含终止进程的进程 ID 及其父进程 ID。
+- 字段 ac_uid 和 ac_gid 从 16 位扩展至 32 位
+- 将 ac_etime 字段类型从 comp_t 改为 float，意在能够记录更长的逝去时间。
+
+### 系统调用 clone()
+
+Linux特有的系统调用，用于实现线程库，避免在应用程序中直接使用。
+
+```c
+#define _GNU_SOURCE
+#include <sched.h>
+int clone (int (*__fn) (void *__arg), void *__child_stack,
+		  int __flags, void *__arg, ...) __THROW;
+```
+
+如同 fork()，由 clone()创建的新进程几近于父进程的翻版。
+
+但与 fork()不同的是，克隆生成的子进程继续运行时不以调用处为起点，转而去调用以参数 func 所指定的函数，func 又称为子函数。调用子函数时的参数由 func_arg指定。
+
+调用者必须分配一块大小适中的内存空间供子进程的栈使用，同时将这块内存的指针置于参数 child_stack 中。
+
+> 栈增长方向对架构的依赖是 clone()设计的一处缺陷。大部分硬件架构中，栈的增长都是向下的
+
+参数 flags 的剩余字节则存放了位掩码，用于控制 clone()的操作。
+
+![image-20230422110047230](./Linux开发.assets/image-20230422110047230.png)
+
+![image-20230422110116336](./Linux开发.assets/image-20230422110116336.png)
+
+参数ptid、tls 和 ctid。这些参数与线程的实现相关，针对线程 ID 以及线程本地存储的使用方面。
+
+> 程序清单 28-3：使用 clone()创建子进程 procexec/t_clone.c
+
+大体上说来，fork()相当于仅设置 flags 为 SIGCHLD 的 clone()调用
+
+vfork()则对应于设置如下 flags 的 clone()：CLONE_VM | CLONE_VFORK | SIGCHLD
+
+#### 因克隆生成的子进程而对 waitpid()进行的扩展
+
+的位掩码参数 options 可以包含如下附加（Linux 特有）值。
+
+- __WCLONE 一经设置，只会等待克隆子进程。
+- __WALL（自 Linux2.4 之后）等待所有子进程，无论类型（克隆、非克隆通吃）。
+- \__WNOTHREAD（自 Linux2.4 之后）指定 \___WNOTHREAD 标志则限制调用者只能等待自己的子进程。
+
+### 进程的创建速度
+
+fork()和 vfork()在时间统计上的差值就是复制进程页表所需的时间总量。
+
+如果fork()和 vfork()都是随后接着执行exec()，两者之间的差距就小了许多。
