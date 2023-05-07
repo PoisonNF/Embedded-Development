@@ -4280,3 +4280,526 @@ vfork()则对应于设置如下 flags 的 clone()：CLONE_VM | CLONE_VFORK | SIG
 fork()和 vfork()在时间统计上的差值就是复制进程页表所需的时间总量。
 
 如果fork()和 vfork()都是随后接着执行exec()，两者之间的差距就小了许多。
+
+## Chapter29 线程：介绍
+
+### 概述
+
+同一程序中的所有线程均会独立执行相同程序，且共享同一份全局内存区域，初始化数据段，未初始化数据段，堆内存段。
+
+- 线程之间能够方便、快速地共享信息。
+
+- 创建线程比创建进程通常要快 10 倍甚至更多。
+
+### Pthreads API
+
+#### 线程数据类型（Pthreads data type）
+
+![image-20230423101919275](./Linux开发.assets/image-20230423101919275.png)
+
+不能使用 C 语言的比较操作符（==）去比较这些类型的变量。
+
+#### Pthreads 函数返回值
+
+所有 Pthreads 函数均以返回 0 表示成功，返回一正值表示失败。这一失败时的返回值，与传统 UNIX 系统调用置于 errno 中的值含义相同。
+
+#### 编译Pthreads 程序
+
+在 Linux 平台上，在编译调用了 Pthreads API 的程序时，需要设置 ==cc -pthread== 的编译选项。
+
+### 创建线程
+
+```c
+#include <pthread.h>
+int pthread_create(pthread_t *thread,const pthread_attr_t *attr,
+					void *(start)(void *),void *arg);
+```
+
+新线程通过调用带有参数 arg 的函数 start（即 start(arg)）而开始执行。
+
+将经强制转换的整型数作为线程 start 函数的返回值时，必须小心谨慎。原因在于取消线程的返回值，通常是整型值，若线程某甲的 start 函数将此整型值返回给正在执行 pthread_join()操作的线程某乙，某乙会误认为某甲遭到了取消。
+
+参数 thread 指向 pthread_t 类型的缓冲区，在 pthread_create()返回前，会在此保存一个该线程的唯一标识。后续的 Pthreads 函数将使用该标识来引用此线程。
+
+参数 attr 是指向 pthread_attr_t 对象的指针，该对象指定了新线程的各种属性。
+
+调用 pthread_create()后，应用程序无从确定系统接着会调度哪一个线程来使用 CPU 资源。
+
+### 终止线程
+
+终止线程的方式：
+
+- 线程 start 函数执行 return 语句并返回指定值
+- 线程调用 pthread_exit()
+- 调用 pthread_cancel()取消线程
+- 任意线程调用了 exit()，或者主线程执行了 return 语句，导致进程中所有线程终止
+
+```c
+#include <pthread.h>
+void pthread_exit(void *retval);
+```
+
+pthread_exit()函数将终止调用线程，且其返回值可由另一线程通过调用 pthread_join()来获取。
+
+参数retval 指定了线程的返回值。Retval 所指向的内容不应分配于线程栈中，因为线程终止后，将无法确定线程栈的内容是否有效。
+
+### 线程ID
+
+```c
+#include <pthread.h>
+pthread_t pthread_self(void);
+```
+
+一个线程可以通过 pthread_self()来获取自己的线程 ID。
+
+```c
+#include <pthread.h>
+int pthread_equal(pthread_t t1,pthread_t t2);
+```
+
+函数 pthread_equal()可检查两个线程的 ID 是否相同。返回非零值为两者相同，0为不相同
+
+> POSIX 线程 ID 与 Linux 专有的系统调用 gettid()所返回的线程 ID 并不相同。
+>
+> POSIX 线程 ID 由线程库实现来负责分配和维护。
+>
+> gettid()返回的线程 ID 是一个由内核分配的数字，类似于进程 ID（process ID）
+
+### 连接（joining）已终止的线程
+
+```c
+#include <pthread.h>
+int pthread_join(pthread_t thread,void **retval);
+```
+
+函数 pthread_join()等待由 thread 标识的线程终止。（如果线程已经终止，pthread_join()会立即返回）。这种操作被称为连接(joining)。
+
+若 retval 为一非空指针，将会保存线程终止时返回值的拷贝，该返回值亦即线程调用 return 或 pthred_exit()时所指定的值。
+
+若线程并未分离，则必须使用 ptherad_join()来进行连接。否则会产生僵尸线程。
+
+> 程序清单 29-1：一个使用 Pthreads 的简单程序 threads/simple_thread.c
+
+### 线程的分离
+
+```c
+#include <pthread.h>
+int pthread_detach(pthread_t thread);
+```
+
+程序员并不关心线程的返回状态，只是希望系统在线程终止时能够自动清理并移除之。该线程标记为处于分离（detached）状态。
+
+其他线程调用了 exit()，或是主线程执行 return 语句时，即便遭到分离的线程也还是会受到影响。此时，不管线程处于可连接状态还是已分离状态，进程的所有线程会立即终止。
+
+### 线程 VS 进程
+
+多线程的优点：
+
+1. 线程间的数据共享很简单。相形之下，进程间的数据共享需要更多的投入。
+2. 创建线程要快于创建进程。线程间的上下文切换比进程短。
+
+多进程的优点：
+
+1. 多线程编程时，需要确保调用线程安全（thread-safe）的函数，或者以线程安全的方式来调用函数。
+2. 某个线程中的 bug可能会危及该进程的所有线程，因为它们共享着相同的地址空间和其他属性。相比之下，进程间的隔离更彻底。
+3. 每个线程都在争用宿主进程中有限的虚拟地址空间。
+
+## Chapter30 线程：线程同步
+
+### 保护对共享变量的访问：互斥量
+
+术语临界区（critical section）是指访问某一共享资源的代码片段，并且这段代码的执行应为原子（atomic） 操作
+
+> 程序清单 30-1：两线程以错误方式递增全局变量的值 threads/thread_incr.c
+
+互斥量有两种状态：已锁定（locked）和未锁定（unlocked）。只有所有者才能给互斥量解锁。
+
+#### 静态分配的互斥量
+
+互斥量是属于 pthread_mutex_t 类型的变量。将 PTHREAD_MUTEX_INITIALIZER 赋给互斥量。
+
+#### 加锁和解锁互斥量
+
+```c
+#include <pthread.h>
+int pthread_mutex_lock(pthread_mutex_t *mutex);
+int pthread_mutex_unlock(pthread_mutex_t *mutex);
+```
+
+如果发起 pthread_mutex_lock()调用的线程自身之前已然将目标互斥量锁定，可能会产生两种后果—视具体实现而定：线程陷入死锁（deadlock）。
+
+> 程序清单 30-2：使用互斥量保护对全局变量的访问 threads/thread_incr_mutex.c
+
+#### pthread_mutex_trylock()和 pthread_mutex_timedlock() 
+
+pthread_mutex_trylock()尝试获得互斥量，没有获得会失败返回EBUSY
+
+pthread_mutex_timedlock()等待参数 abstime指定的时间，没有获得会失败返回ETIMEOUT
+
+这两个API用的比较少
+
+#### 互斥量的性能
+
+在通常情况下，线程会花费更多时间去做其他工作，对互斥量的加锁和解锁操作相对要少得多，因此使用互斥量对于大部分应用程序的性能并无显著影响。
+
+#### 互斥量的死锁
+
+要避免死锁问题，最简单的方法是定义互斥量的层级关系。
+
+另一种方案的使用频率较低，就是“尝试一下，然后恢复”。使用函数 pthread_mutex_trylock()来锁定其余互斥量。如果任一 pthread_mutex_trylock()调用失败，那么该线程将释放所有 互斥量，也许经过一段时间间隔，从头再试。
+
+#### 动态初始化互斥量
+
+静态初始值 PTHREAD_MUTEX_INITIALIZER，只能用于对如下互斥量进行初始化：经由静态分配且携带默认属性。
+
+```c
+#include <pthread.h>
+int pthread_mutex_init(pthread_mutex_t *mutex,const pthread_mutexattr_t *attr);
+```
+
+参数 mutex 指定函数执行初始化操作的目标互斥量。
+
+参数 attr 是指向 pthread_mutexattr_t 类用于定义互斥量的属性。NULL为默认值。
+
+在如下情况下，必须使用函数 pthread_mutex_init()：
+
+1. 动态分配于堆中的互斥量。
+2. 互斥量是在栈中分配的自动变量。
+3. 初始化经由静态分配，且不使用默认属性的互斥量。
+
+当不再需要经由自动或动态分配的互斥量时，应使用 pthread_mutex_destroy()将其销毁。
+
+```c
+#include <pthread.h>
+int pthread_mutex_destroy(pthread_mutex_t *mutex);
+```
+
+#### 互斥量类型
+
+PTHREAD_MUTEX_NORMAL 该类型的互斥量不具有死锁检测（自检）功能。
+
+PTHREAD_MUTEX_ERRORCHECK 对此类互斥量的所有操作都会执行错误检查。
+
+PTHREAD_MUTEX_RECURSIVE 递归互斥量维护有一个锁计数器。
+
+Linux 上，PTHREAD_MUTEX_DEFAULT 类型互斥量的行为与 PTHREAD_MUTEX_NORMAL 类型相仿。
+
+> 程序清单 30-3：设置互斥量类型
+
+![image-20230424143800249](./Linux开发.assets/image-20230424143800249.png)
+
+### 通知状态的改变：条件变量
+
+条件变量允许一个线程就某个共享变量的状态变化通知其他线程。
+
+条件变量总是结合互斥量使用。条件变量就共享变量的状态改变发出通知，而互斥量则提供对该共享变量访问的互斥
+
+#### 由静态分配的条件变量
+
+条件变量的数据类型是 pthread_cond_t。类似于互斥量，使用条件变量前必须对其初始化。对于经由静态分配的条件变量，将其赋值为 PTHREAD_COND_INITALIZER 即完成初始化操作。
+
+#### 通知和等待条件变量
+
+```c
+#include <pthread.h>
+int pthread_cond_signal(pthread_cond_t *cond);
+int pthread_cond_broadcast(pthread_cond_t *cond);
+int pthread_cond_wait(pthread_cond_t *cond,pthread_mutex_t *mutex);
+```
+
+函数 pthread_cond_signal()和 pthread_cond_broadcast()均可针对由参数 cond 所指定的条件变量而发送信号。
+
+pthread_cond_wait()函数将阻塞一线程，直至收到条件变量 cond 的通知。
+
+```c
+int pthread_cond_timedwait(pthread_cond_t *cond,pthread_mutex_t *mutex,
+							const struct timespec *abstime);
+```
+
+函数 pthread_cond_timedwait()与函数 pthread_cond_wait()几近相同，唯一的区别在于，由参数 abstime 来指定一个线程等待条件变量通知时休眠时间的上限。
+
+#### 测试条件变量的判断条件
+
+必须由一个 while 循环，而不是 if 语句，来控制对 pthread_cond_wait()的调用。
+
+例如
+
+```c
+s = pthread_mutex_lock(&mtx);
+while(一个不想要的状态)
+	pthread_cond_wait(&cond,&mtx);
+/* 想要的状态，开始工作 */
+s = pthread_mutex_unlock(&mtx);
+```
+
+#### 连接任意已终止线程
+
+> 程序清单 30-4：可以连接任意已终止线程的主线程 threads/thread_multijoin.c
+
+#### 经由动态分配的条件变量
+
+```c
+#include <pthread.h>
+int pthread_cond_init(pthread_cond_t *cond,const pthread_condattr_t *attr);
+```
+
+参数 cond 表示将要初始化的目标条件变量。
+
+对于 attr 所指向的 pthread_condattr_t 类型对象，可使用多个 Pthreads 函数对其中属性进行初始化。
+
+```c
+#include <pthread.h>
+int pthread_cond_destroy(pthread_cond_t *cond);
+```
+
+不使用条件变量之后需要将其销毁。
+
+## Chapter31 线程：线程安全和每线程存储
+
+### 线程安全
+
+实现线程安全有多种方式。
+
+其一是将函数与互斥量关联使用，这意味着只能同时一个线程去执行该函数，串行。
+
+其二是将共享变量与互斥量关联起来。仅在执行到临界区时去获取和释放互斥量，并行。
+
+#### 可重入和不可重入函数
+
+SUSv3 为其定义了以后缀_r 结尾的可重入“替身”。要求由调用者来分配缓冲区，并将缓存区地址传给函数用以返回结果。
+
+### 一次性初始化
+
+多线程程序有时有这样的需求：不管创建了多少线程，有些初始化动作只能发生一次。
+
+```c
+#include <pthread.h>
+int pthread_once(pthread_once_t *once_control,void (*init)(void));
+```
+
+利用参数 once_control 的状态，函数 pthread_once() 可以确保无论有多少线程对 pthread_once()调用了多少次，也只会执行一次由 init 指向的调用者定义函数。
+
+另外，参数 once_control 必须是一指针，指向初始化为 PTHREAD_ONCE_INIT 的静态变量。
+
+### 线程特有数据
+
+使用线程特有数据技术，可以无需修改已有的不可重入函数接口而实现已有函数的线程安全。
+
+#### 线程特有数据 API 详述
+
+```c
+#include <pthread.h>
+int pthread_key_create(pthread_key_t *key,void(*destructor)(void *));
+```
+
+调用 pthread_key_create()函数为线程特有数据创建一个新键，并通过 key 所指向的缓冲区返回给调用者。
+
+只要线程终止时与 key 的关联值不为 NULL，Pthreads API 会自动执行解构函数。
+
+```c
+#include <pthread.h>
+int pthread_setspecific(pthread_key_t key,const void *value);
+void *pthread_getspecific(pthread_key_t key);
+```
+
+函数 pthread_setspecific()要求 Pthreads API 将 value 的副本存储于一数据结构中，并将 value 与调用线程以及 key 相关联。
+
+函数 pthread_setspecific()的参数 value 通常是一指针，指向由调用者分配的一块内存。
+
+Pthread_getspecific()函数执行的操作与之相反，返回之前与本线程及给定 key 相关的值（value）。
+
+当线程刚刚创建时，会将所有线程特有数据的指针都初始化为 NULL。这意味着当线程初次调用库函数时，必须使用 pthread_getspecific()函数来检查该线程是否已有与 key 对应的关联值。如果没有，那么此函数会分配一块内存并通过 pthread_setspecific()保存指向该内存块的指针。
+
+> 程序清单 31-1：非线程安全版 strerror()函数的一种实现 threads/strerror.c
+>
+> 程序清单 31-2：从两个不同线程调用 strerror() threads/strerror_test.c
+>
+> 程序清单 31-3：使用线程特有数据以实现线程安全的 strerror()函数 threads/strerror_tsd.c
+
+### 线程局部存储
+
+类似于线程特有数据，线程局部存储提供了持久的每线程存储。(非标准特性)
+
+线程局部存储的主要优点在于，比线程特有数据的使用要简单。要创建线程局部变量，只需简单地在全局或静态变量的声明中包含__thread 说明符即可。
+
+注意：
+
+- 如果变量声明中使用了关键字 static 或 extern，那么关键字__thread 必须紧随其后。
+- 与一般的全局或静态变量声明一样，线程局部变量在声明时可设置一个初始值。
+- 可以使用 C 语言取址操作符（&）来获取线程局部变量的地址。
+
+> 程序清单 31-4：使用线程局部存储实现线程安全版的 strerror()函数 threads/strerror_tls.c
+
+## Chapter32 线程：线程取消
+
+### 取消一个线程
+
+```c
+#include <pthread.h>
+int pthread_cancel(pthread_t pthread);
+```
+
+发出取消请求后，函数 pthread_cancel()当即返回，不会等待目标线程的退出。
+
+### 取消状态及类型
+
+```c
+#include <pthread.h>
+int pthread_setcancelstate(int state,int *oldstate);
+int pthread_setcancelstate(int type,int *oldstate);
+```
+
+函数 pthread_setcancelstate()会将调用线程的取消性状态置为参数 state 所给定的值。
+
+参数state可取值：
+
+PTHREAD_CANCEL_DISABLE 线程不可取消。
+
+PTHREAD_CANCEL_ENABLE 线程可以取消。这是新建线程取消性状态的默认值。
+
+参数type可取值：
+
+PTHREAD_CANCEL_ASYNCHRONOUS 可能会在任何时点取消线程。用的比较少。
+
+PTHREAD_CANCEL_DEFERED 取消请求保持挂起状态，直至到达取消点。
+
+
+
+当某线程调用 fork()时，子进程会继承调用线程的取消性类型及状态。而当某线程调用 exec()时，会将新程序主线程的取消性类型及状态分别重置为 PTHREAD_ CANCEL_ NABLE 和 PTHREAD_CANCEL_DEFERRED。
+
+### 取消点
+
+若将线程的取消性状态和类型分别置为启用和延迟，仅当线程抵达某个取消点时，取消请求才会起作用。取消点即是对由实现定义的一组函数之一加以调用。
+
+![image-20230428224134875](./Linux开发.assets/image-20230428224134875.png)
+
+> 程序清单 32-1：调用 pthread_cancel()取消线程 threads/threads_cancel.c
+
+### 线程可取消性的检测
+
+```c
+#include <pthread.h>
+int pthread_testcancel(void);
+```
+
+函数 pthread_testcancel()的目的很简单，就是产生一个取消点。线程如果已有处于挂起状态的取消请求，那么只要调用该函数，线程就会随之终止。
+
+### 清理函数（cleanup handler）
+
+```c
+#include <pthread.h>
+void pthread_cleanup_push(void (*routine)(void*),void *arg);
+void pthread_cleanup_pop(int execute);
+```
+
+函数 pthread_cleanup_push()和 pthread_cleanup_pop()分别负责向调用线程的清理函数栈添加和移除清理函数。
+
+thread_cleanup_pop()函数是用于弹出栈顶的清理处理函数，并执行该函数。它是对pthread_cleanup_push()函数的一种补充，用于为线程池中的线程设置清理函数，以确保在线程退出时进行资源清理，防止资源泄漏和数据不一致性。需要注意的是，pthread_cleanup_pop()必须成对调用（与pthread_cleanup_push()一起使用），以保证正确的清理动作。
+
+其中，execute参数如果非零，则立即执行清理函数；否则，该函数不会执行清理函数，而是将清理函数从栈中弹出。函数返回值类型为空。
+
+为便于编码，若线程因调用 pthread_exit()而终止，则也会自动执行尚未从清理函数栈中弹出（pop）的清理函数。
+
+> 程序清单 32-2：使用清理函数 threads/thread_cleanup.c
+
+### 异步取消
+
+作为一般性原则，可异步取消的线程不应该分配任何资源，也不能获取互斥量或锁。这导致大量库函数无法使用，其中就包括 Pthreads 函数的大部分。异步取消功能鲜有应用场景，其中之一就是：取消在执行计算密集型循环的线程。
+
+## Chapter33 线程：更多细节
+
+### 线程栈
+
+Linux/x86-32 架构上，除了主线程缺省都是2MB。调用函数 pthread_attr_setstacksize()所设置的线程属性决定了线程栈的大小。
+
+例如，在 x86-32 系统中，用户（模式）可访问的虚拟地址空间是 3GB，而 2MB 的缺省栈大小则意味着最多只能创建 1500 个线程。
+
+### 线程和信号
+
+信号与线程模型之间的差异意味着，将二者结合使用，将会非常复杂，应尽可能加以避免。
+
+#### 操作线程信号掩码
+
+```c
+#include <signal.h>
+int pthread_sigmask(int how,const sigset_t *set,sigset_t *oldset);
+```
+
+刚创建的新线程会从其创建者处继承信号掩码的一份拷贝。线程可以使用 pthread_sigmask()来改 变或/并获取当前的信号掩码。
+
+事实上，函数 sigprocmask()和 pthread_sigmask()在包括 Linux 在内 的很多系统实现中是相同的。
+
+#### 向线程发送信号
+
+```c
+#include <signal.h>
+int pthread_kill(pthread_t thread,int sig);
+```
+
+函数 pthread_kill()向同一进程下的另一线程发送信号 sig。目标线程由参数 thread 标识。
+
+```c
+#define _GNU_SOURCE
+#include <signal.h>
+int pthread_sigqueue(pthread_t thread,int sig,const union sigval value);
+```
+
+Linux 特有的函数 pthread_sigqueue()将 pthread_kill()和 sigqueue()的功能合二为一：向同一进程中的另一线程发送携带数据的信号。
+
+#### 妥善处理异步信号
+
+没有任何 Pthreads API 属于异步信号安全函数，均无法在信号处理函数中安全加以调用。
+
+多线程应用程序必须处理异步产生的信号。
+
+可以创建一个专用线程，调用sigwait()来接收信号，并且可以安全的修改共享变量，调用非异步安全函数。
+
+```c
+#include <signal.h>
+int sigwait(const sigset_t *set,int *sig);
+```
+
+函数 sigwait()会等待 set 所指信号集合中任一信号的到达，接收该信号，且在参数 sig 中将其返回。
+
+### Linux POSIX 线程的实现
+
+有两种实现：1. LinuxThreads 2. NPTL（Native POSIX Threads Library）
+
+## Chapter43 进程间通信简介
+
+![image-20230507095029854](./Linux开发.assets/image-20230507095029854.png)
+
+### 通信工具
+
+通信工具分为两类
+
+- 数据传输工具：这些工具具有写入和读取的概念，在使用时会在内存和核进行两次数据传输。
+- 共享内存：一个进程可以通过将数据放到共享内存块中使得其他进程读取这些数据。无需系统调用，速度快
+
+### 数据传输
+
+- 字节流
+- 消息
+- 伪终端
+
+数据传输工具和共享内存之间的差别
+
+- 尽管一个数据传输工具可能会有多个读取者，但读取操作是具有破坏性的。读取操作会消耗数据，其他进程将无法获取所消耗的数据。
+- 读取者和写者进程之间的同步是原子的。
+
+共享内存
+
+System V 共享内存、POSIX 共享内存以及内存映射
+
+共享内存通信速度更快，但是需要信号量来进行同步。
+
+### 同步工具
+
+- 信号量
+- 文件锁 任意进程都可以持有同一文件的读锁，但当一个进程持有了一个文件的写锁之后，其他进程将无法获取该文件的读写锁，使用flock()【过时】和fcntl()系统调用来使用读写锁。
+- 互斥体和条件变量 通常用于 POSIX 线程
+
+### IPC 工具比较
+
+![image-20230507101428404](./Linux开发.assets/image-20230507101428404.png)
+

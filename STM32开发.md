@@ -217,6 +217,28 @@ ZI-data不会被算做代码里因为不会被初始化;
 - 如何相对准确定时1us？采用寄存器法会比较好。
 
     > [(29条消息) STM32延时函数的四种方法：普通延时（2种）、SysTick 定时器延时（2种）_stm32 中断延时和系统延时的区别_魏波.的博客-CSDN博客](https://blog.csdn.net/weibo1230123/article/details/81136564)
+    
+- 调用HAL_Delay()函数在极短延时时间（例如1ms）会多延时1ms，误差很大。原因在于其函数内部。
+
+    ```c
+    __weak void HAL_Delay(uint32_t Delay)
+    {
+      uint32_t tickstart = HAL_GetTick();
+      uint32_t wait = Delay;
+      /* Add a freq to guarantee minimum wait */
+      if (wait < HAL_MAX_DELAY)
+      {
+        wait += (uint32_t)(uwTickFreq);
+      }
+      while ((HAL_GetTick() - tickstart) < wait);
+    }
+    ```
+
+    为了防止**防止无意义延时（即0ms延时）的产生**，在HAL_Delay函数传入参数之后会对参数加1。对于任意延时而言都会比预想的多1ms。
+
+    在SGA库中，我打算使用子函数Drv_Delay_Us()来进行准确延时，经过测试，误差缩小很多。缺点是延时的上限会少1000倍。
+
+    [(32条消息) STM32使用HAL库自带延时函数HAL_Delay时存在1ms误差_Mr.Piece的博客-CSDN博客](https://blog.csdn.net/PianGe_zyl/article/details/108880981)
 
 ***
 # GPIO

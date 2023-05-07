@@ -4,6 +4,8 @@
 
 [STM32CubeMX学习笔记（32）——FreeRTOS实时操作系统使用（事件） - 简书 (jianshu.com)](https://www.jianshu.com/p/8187bd2a1ca7)
 
+[FreeRTOS - 快速入门指南](https://www.freertos.org/zh-cn-cmn-s/FreeRTOS-quick-start-guide.html)
+
 ## FreeRTOS编码规范
 
 ![image-20230327190405554](FreeRTOS开发.assets/image-20230327190405554.png)
