@@ -4803,3 +4803,353 @@ System V 共享内存、POSIX 共享内存以及内存映射
 
 ![image-20230507101428404](./Linux开发.assets/image-20230507101428404.png)
 
+![image-20230507163738855](./Linux开发.assets/image-20230507163738855.png)
+
+## Chapter44 管道与FIFO
+
+### 概述
+
+wc命令统计文件中的行数、字数和字符数。如果不指定选项，则默认会同时统计行数、单词数和字节数。
+
+一个管道是一个字节流
+
+试图从一个当前为空的管道中读取数据将会被阻塞直到至少有一个字节被写入到管道中为止。
+
+管道是单向的。管道的一段用于写入，另一端则用于读取。
+
+管道的容量是有限的。使用较大的缓冲器的原因是效率。减少上下文切换次数。
+
+### 创建和使用管道
+
+```c
+#include <unistd.h>
+int pipe(int fileds[2]);
+```
+
+成功的 pipe()调用会在数组 filedes 中返回两个打开的文件描述符：一个表示管道的读取端（filedes[0]），另一个表示管道的写入端（filedes[1]）。
+
+![image-20230507213106091](./Linux开发.assets/image-20230507213106091.png)
+
+为了让两个进程通过管道进行连接，在调用完 pipe()之后可以调用 fork()。并且需要将未使用的描述符关闭。
+
+> 程序清单 44-2：在父进程和子进程间使用管道通信 pipes/simple_pipe.c
+
+### 将管道作为一种进程同步的方法
+
+> 程序清单 44-3：使用管道同步多个进程 pipes/pipe_sync.c
+
+父进程创建了一个管道，每个子进程都会继承管道写入端的文件描述符，在完成动作后关闭。当所有子进程都关闭了管道的写入端的文件描述符。父进程在管道上的 read()就会结束并返回文件结束（0），此时父进程就能做其他事了。
+
+与信号同步相比
+
+优势：它可以同来协调一个进程的动作使之与多个其他（相关）进程匹配。多个（标准）信号无法排队的事实使得 号不适用于这种情形。
+
+劣势：信号的优势是它可以被一个进程广播到进程组中的所有成员处。
+
+### 使用管道连接过滤器
+
+举例将进程的标准输出被绑定到了管道的写入端
+
+```c
+int pfd[2];
+
+pipe(pfd);
+
+close(STDOUT_FILENO);
+dup(pfd[1]);
+```
+
+或者使用dup2()来实现显式绑定
+
+```c
+dup2(pfd[1],STDOUT_FILENO);
+close(pfd[1]);
+```
+
+防御性编程实践
+
+```c
+if(pfd[1] != STDOUT_FILENO)
+{
+	dup2(pfd[1],STDOUT_FILENO);
+	close(pfd[1]);
+}
+```
+
+> 程序清单 44-4：使用管道连接 ls 和 wc  pipes/pipe_ls_wc.c
+
+### 通过管道与 shell 命令进行通信：popen() 
+
+```c
+#include <stdio.h>
+
+FILE *popen(const char *command,const char *mode);
+int pclose(FILE *stream);
+```
+
+popen()函数创建了一个管道，然后创建了一个子进程来执行 shell，而 shell 又创建了一个子进程来执行command 字符串。
+
+参数mode是一个字符串，只能取"r"或者"w",代表从管道中读还是写。
+
+![image-20230508150614885](./Linux开发.assets/image-20230508150614885.png)
+
+system()和popen()的区别
+
+- 返回值类型：`system()` 的返回值类型是 `int`，表示命令的退出状态码；而 `popen()` 函数返回一个文件流指针，可以读取命令输出的内容。
+- 使用方式：`system()` 是同步执行外部命令，调用该函数后程序会一直等待命令执行结束才会继续往下执行。而 `popen()` 可以异步执行外部命令，在后台运行并返回结果。
+- 输入输出方式：`system()` 的输入和输出都只能通过控制台进行，无法使用管道等高级的输入输出方式。而 `popen()` 可以使用高级输入输出方式，如管道，从而实现更加灵活的交互方式。
+
+总体来说，`system()` 适用于简单的外部命令执行，而 `popen()` 更加适用于需要与外部命令进行交互、获取输出结果或者需要长时间执行的场景。
+
+> 程序清单 44-5：使用 popen()通配文件名模式 pipes/popen_glob.c
+
+### 管道和stdio缓冲区
+
+mode的值为w，只有当 stdio 缓冲器被充满或使用 pclose()关闭之后输出才会被发送到管道另一端的子进程。
+
+mode的值为r，其输出只有在子进程填满 stdio 缓冲器或调用了 fclose()之后才会对调用进程可用。
+
+两者都需要通过定期调用fflush()或者使用setbuf(fp,NULL)禁用stdio缓冲。
+
+### FIFO(命名管道)
+
+可以使用`mkfifo pathname`创建一个FIFO
+
+```c
+#include <sys/stat.h>
+int mkfifo(const char *pathname,mode_t mode);
+```
+
+mode 参数指定了新 FIFO 的权限。这些权限是通过chmod的常量取 OR 来指定的。
+
+使用 FIFO 时唯一明智的做法是在两 端分别设置一个读取进程和一个写入进程。使用O_RDONLY和O_WRONLY
+
+不要使用O_RDWR，结果是未知的。如果需要避免打开时发生阻塞，可以在open()种使用O_NONBLOCK标记
+
+#### 使用 FIFO 和 tee(1)创建双重管道线
+
+tee 命令从标准输入中读取到的数据复制两份并输出：一份写入到标准输出，另一份写入到通过命令行参数指定的文件中。
+
+将传给tee命名的file参数设置为一个FIFO可以让两个进程同时读取tee产生的两份数据。
+
+![image-20230509102806770](./Linux开发.assets/image-20230509102806770.png)
+
+![image-20230509102824643](./Linux开发.assets/image-20230509102824643.png)
+
+### 使用管道实现一个客户端/服务器应用程序
+
+![image-20230509180305554](./Linux开发.assets/image-20230509180305554.png)
+
+![image-20230509180313438](./Linux开发.assets/image-20230509180313438.png)
+
+> 程序清单 44-6：fifo_seqnum_server.c 和 fifo_seqnum_client.c 的头文件 pipes/fifo_seqnum.h
+>
+> 程序清单 44-7：使用 FIFO 的迭代式服务器 pipes/fifo_seqnum_server.c
+>
+> 程序清单 44-8：序号服务器的客户端 pipes/fifo_seqnum_client.c
+
+### 非阻塞I/O
+
+当一个进程打开一个 FIFO 的一端时，如果 FIFO 的另一端还没有被打开，那么该进程会被阻塞。
+
+但是阻塞并不是预期的行为，而这可以通过在调用 open()时指定 O_NONBLOCK 标记来实现。
+
+```c
+fd = open("fifopath",O_RDONLY|O_NONBLOCK);
+if(fd == -1)
+	errExit("open");
+```
+
+![image-20230510135736738](./Linux开发.assets/image-20230510135736738.png)
+
+使用 O_NONBLOCK 标记存在的目的：
+
+1. 它允许单个进程打开一个 FIFO 的两端。
+2. 它防止打开两个 FIFO 的进程之间产生死锁。
+
+可以使用 fcntl()启用或禁用打开着的文件的 O_NONBLOCK 状态标记。
+
+```c
+//启动
+int flags;
+flags = fcntl(fd,F_GETFL);
+flags |= O_NONBLOCK;
+fcntl(fd,F_SETFL,flags);
+
+//关闭
+flags = fcntl(fd,F_GETFL);
+flags &= ~O_NONBLOCK;
+fcntl(fd,F_SETFL,flags);
+```
+
+### 管道和 FIFO 中 read()和 write()的语义
+
+![image-20230511133036973](./Linux开发.assets/image-20230511133036973.png)
+
+![image-20230511133407130](./Linux开发.assets/image-20230511133407130.png)
+
+## Chapter51 POSIX IPC 介绍
+
+### API概述
+
+![image-20230514141150420](./Linux开发.assets/image-20230514141150420.png)
+
+### 在Linux上编译使用POSIX IPC的程序
+
+在 Linux 上，使用 POSIX IPC 机制的程序必须要与实时库 librt 链接起来，这可以通过在cc 命令中指定==–lrt== 选项来完成。
+
+### System V IPC 与 POSIX IPC 比较
+
+POSIX IPC的优势：
+
+- POSIX IPC 的接口比 System V IPC 接口简单。
+- POSIX IPC 模型与传统UNIX文件模型更加一致
+- POSIX IPC 对象是引用计数的。
+
+System IPC的优势：
+
+System IPC的移植性要好于POSIX IPC
+
+## Chapter52 POSIX 消息队列
+
+POSIX 消息队列支持是一个通过 `CONFIG_POSIX_MQUEUE` 选项配置的可选内核组件。
+
+### 概述
+
+- mq_open()函数创建一个新消息队列或打开一个既有队列，返回后续调用中会用到的消息队列描述符。
+- mq_send()函数向队列写入一条消息。
+- mq_receive()函数从队列中读取一条消息。 
+- mq_close()函数关闭进程之前打开的一个消息队列。
+- mq_unlink()函数删除一个消息队列名并当所有进程关闭该队列时对队列进行标记以便删除
+- mq_notify()函数允许一个进程向一个队列注册接收消息通知。
+
+### 打开、关闭和断开链接消息队列
+
+```c
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <mqueue.h>
+
+mqd_t mq_open(const char *name,int oflag,...);
+```
+
+mq_open()函数创建一个新消息队列或打开一个既有队列。
+
+name 参数标识出了消息队列，其命名规则应遵循以下：
+
+- 名称必须以“/”开头。
+- 名称中只允许使用字母、数字和下划线，不允许使用空格和其他特殊字符。
+- 名称的长度不能超过特定的系统限制，通常为255个字符。
+- 名称不能与其他消息队列或系统对象（如命名信号量或共享内存）重名。
+
+例如，一个合法的消息队列名称可以是：“/my_message_queue”。
+
+oflag 参数是一个位掩码，它控制着 mq_open()操作的各个方面。
+
+![image-20230514143632757](./Linux开发.assets/image-20230514143632757.png)
+
+如果指定了O_CREAT，就需要额外两个参数：mode 和 attr。mode与文件掩码值一样。attr是新消息队列的特性，如果为NULL，就是默认特性创建。
+
+```c
+struct mq_attr {
+	__kernel_long_t	mq_flags;	/* message queue flags			*/
+	__kernel_long_t	mq_maxmsg;	/* maximum number of messages		*/
+	__kernel_long_t	mq_msgsize;	/* maximum message size			*/
+	__kernel_long_t	mq_curmsgs;	/* number of messages currently queued	*/
+};
+```
+
+```c
+#include <mqueue.h>
+int mq_close(mqd_t mqdes);
+```
+
+mq_close()函数关闭消息队列描述符 mqdes。
+
+关闭一个消息队列并不会删除该队列。要删除队列则需要使用mq_unlink()，它是 unlink()在消息队列上的版本。
+
+```c
+#include <mqueue.h>
+int mq_unlink(const char *name);
+```
+
+mq_unlink()函数删除通过 name 标识的消息队列。
+
+> 程序清单 52-1：使用 mq_unlink()断开一个 POSIX 消息队列的链接 pmsg/pmsg_unlink.c
+>
+> 程序清单 52-2：创建一个 POSIX 消息队列 pmsg/pmsg_create.c
+>
+> 程序清单 52-3：获取 POSIX 消息队列特性 pmsg/pmsg_getattr.c
+
+```c
+#include <mqueue.h>
+int mq_setattr(mqd_t mqdes,const struct mq_attr *newattr,struct mq_attr *oldattr);
+```
+
+mq_setattr()函数设置与消息队列描述符 mqdes 相关联的消息队列描述的特性。
+
+如果 oldattr 不为 NULL，返回一个包含之前的消息队列描述标记和消息队列特性的 mq_attr 结构
+
+SUSv3 规定使用 mq_setattr()能够修改的唯一特性是 O_NONBLOCK 标记的状态。
+
+### 交换信息
+
+#### 发送信息
+
+```c
+#include <mqueue.h>
+int mq_send(mqd_t mqdes,const char *msg_ptr,size_t msg_len,unsigned int msg_prio);
+```
+
+mq_send()函数发送信息到描述符 mqdes 所引用的消息队列中。
+
+参数msg_ptr 指向的缓冲区中的消息。
+
+参数msg_len数指定了 msg_ptr 指向的消息的长度。
+
+参数msg_prio指定优先级，0表示优先级最低，在Linux中上限为32768。
+
+> 程序清单 52-4：向 POSIX 消息队列写入一条消息 pmsg/pmsg_send.c
+
+#### 接收信息
+
+```c
+#include <mqueue.h>
+ssize_t mq_receive(mqd_t mqdes,char *msg_ptr,size_t msg_len,unsigned int *msg_prio);
+```
+
+mq_receive()函数从 mqdes 引用的消息队列中删除一条优先级最高、存在时间最长的消息并将删除的消息放置在 msg_ptr 指向的缓冲区。
+
+参数msg_ptr 指向的缓冲区中的消息。
+
+参数msg_len必须大于或者等于mq_msgsize 特性。可以通过mq_attr()函数获取该值。
+
+如果 msg_prio 不为 NULL，那么接收到的消息的优先级会被复制到 msg_prio 指向的位置处。
+
+> 程序清单 52-5：从 POSIX 消息队列中读取一条消息 pmsg/pmsg_receive.c
+
+#### 在发送和接收消息时设置超时时间
+
+mq_timedsend()和mq_timedreceive()函数与 mq_send()和mq_receive()几乎是完全一样的，那么 abs_timeout 参数就会为调用阻塞的时间指定一个上限。abs_timeout 参数是一个 timespec 结构。
+
+### 消息通知
+
+POSIX 消息队列能够接收之前为空的队列上有可用消息的异步通知。
+
+```c
+#include <mqueue.h>
+int mq_notify(mqd_t mqdes,const struct sigevent *notification);
+```
+
+mq_notify()函数注册调用进程在一条消息进入描述符 mqdes 引用的空队列时接收通知。
+
+参数notification类型sigevent结构中的sigev_notify 可选：
+
+- SIGEV_NONE 注册这个进程接收通知，但当一条消息进入之前为空的队列时不通知该进程。
+- SIGEV_SIGNAL 通过生成一个在 sigev_signo 字段中指定的信号来通知进程。
+- SIGEV_THREAD 通过调用在 sigev_notify_function 中指定的函数来通知进程。
+
+#### 通过信号接收通知
+
+> 程序清单 52-6：通过信号接收消息通知 pmsg/mq_notify_sig.c
+

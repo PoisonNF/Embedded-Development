@@ -9,6 +9,12 @@
 > [收藏】QT图形框架编程开发（层层到肉）_C++图形用户界面开发框架](https://www.bilibili.com/video/BV1Wf4y1Y7uh/?p=3&share_source=copy_web&vd_source=b861809de5579169c2e8682cde41b2cd)
 
 ***
+# 比较好的框架
+
+[Linloir/GraphBuilder: A visualized tool to create a graph (github.com)](https://github.com/Linloir/GraphBuilder)
+
+做成上位机需要进行一些剪裁。
+
 # 开发中遇到一些问题
 
 1. **遇到警告：**QT警告**Slots named on_foo_bar are error prone**
