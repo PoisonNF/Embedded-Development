@@ -5153,3 +5153,30 @@ mq_notify()函数注册调用进程在一条消息进入描述符 mqdes 引用�
 
 > 程序清单 52-6：通过信号接收消息通知 pmsg/mq_notify_sig.c
 
+#### 通过线程接收通知
+
+> 程序清单 52-7：通过线程来接收消息通知 pmsg/mq_notify_thread.c
+
+### Linux特有特性
+
+#### 通过命令行显示和删除消息队列对象
+
+POSIX IPC的对象都实现成了虚拟文件系统中的文件。可以使用ls和rm命令。
+
+首先要先将消息队列挂载到文件系统中。
+
+`mount -t mqueue source target`
+
+source可以是任意的名字，通常是none。target是挂载点。
+
+#### 获取消息队列的相关信息
+
+QSIZE 字段的值为队列中所有数据的总字节数，剩下的字段则与消息通知相关。如果 NOTIFY_PID 为非零，那么进程 ID 为该值的进程已经向该队列注册接收消息通知了，剩下的 字段则提供了与这种通知相关的信息。
+
+NOTIFY 是一个与其中一个 sigev_notify 常量对应的值：0 表示 SIGEV_SIGNAL，1 表示 SIGEV_NONE，2 表示 SIGEV_THREAD。如果通知方式是 SIGEV_SIGNAL，那么 SIGNO 字段指出了哪个信号会用来分发消息通知。
+
+### 消息队列限制
+
+MQ_PRIO_MAX 一条消息的最大优先级。
+
+MQ_OPEN_MAX 一个进程最多能打开的消息队列数量
