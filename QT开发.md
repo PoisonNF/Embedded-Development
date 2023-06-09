@@ -447,6 +447,75 @@ void ctrl::xxxx_Solts()
     this->close();
 }
 ```
+
+
+# 正则表达式与验证器
+
+通过使用验证器可以实现在输入框只输入特定的文本，不符合正则表达式的文本将不会显示。
+
+## QT5版本
+
+在Qt中，可以使用`QRegExp`类和`QValidator`类来判断`QLineEdit`中的值是否为数字。
+
+方法一：使用QRegExp
+
+`QRegExp`类提供了一种进行正则表达式匹配的方法，可以用于检测输入的内容是否符合指定的格式。我们可以使用`QRegExp`类实现输入验证，检测`QLineEdit`中的值是否为数字，例如：
+
+```c++
+QRegExp regExp("[0-9]*"); // 创建正则表达式，表示只接受数字
+QRegExpValidator *validator = new QRegExpValidator(regExp, this); // 创建验证器
+lineEdit->setValidator(validator); // 设置验证器
+```
+
+在这个例子中，我们创建了一个`QRegExp`对象，并指定其匹配规则为只接受数字。然后我们再创建了一个`QRegExpValidator`对象，并将其传递给`QLineEdit`对象的`setValidator()`函数中，这样可以保证`QLineEdit`中的值只能为数字。
+
+方法二：使用QDoubleValidator
+
+除了`QRegExpValidator`，Qt还提供了一种特定类型的验证器`QDoubleValidator`，可以用于检测输入的内容是否为浮点数。我们可以使用`QDoubleValidator`实现输入验证，检测`QLineEdit`中的值是否为数字，例如：
+
+```c++
+QDoubleValidator *validator = new QDoubleValidator(this); // 创建验证器
+lineEdit->setValidator(validator); // 设置验证器
+```
+
+在这个例子中，我们创建了一个`QDoubleValidator`对象，并传递给`QLineEdit`对象的`setValidator()`函数中，这样可以保证`QLineEdit`中的值只能为浮点数。
+
+无论是方法一还是方法二，都可以实现`QLineEdit`中的值是否为数字的输入验证功能。根据你的实际需求和场景特点，选择适合的方法即可。
+
+## QT6版本
+
+在Qt6中，`QRegExp`和`QRegExpValidator`已经被标记为已弃用，并且不再建议使用它们进行输入验证。
+
+在Qt6中，可以使用`QRegularExpression`和`QRegularExpressionValidator`进行正则表达式匹配和输入验证。以下是使用`QRegularExpression`和`QRegularExpressionValidator`检测`QLineEdit`中的值是否为数字的示例代码：
+
+```c++
+QRegularExpression regExp("[0-9]*"); // 创建正则表达式，表示只接受数字
+QRegularExpressionValidator *validator = new QRegularExpressionValidator(regExp, this); // 创建验证器
+lineEdit->setValidator(validator); // 设置验证器
+```
+
+在使用`QRegularExpressionValidator`时，它会自动将`QLineEdit`的前景色设置为红色，并弹出一个小型的文本提示，以指示输入的值不符合规则。
+
+由于Qt6与Qt5在某些细节方面略有不同，因此建议在编写新应用程序时首选Qt6的API，以便确保最大程度的兼容性和可靠性。
+
+## 正则表达式
+
+比如匹配小数，可以使用 `[0-9]*(\\.[0-9]*)?`
+
+- `[0-9]*` 表示匹配 0 到多个数字，其中方括号 `[]` 中的字符为可以匹配的字符集合，`0-9` 表示匹配 0 到 9 的任意数字，`*` 表示匹配 0 到多个该字符集合中的字符。
+- `(\\.[0-9]*)?` 表示一个可选的小数部分，其中的第一个括号 `()` 表示这是一个组，并且 `\\.` 表示匹配小数点，因为小数点是一个特殊的字符，需要用反斜线转义来表示；`[0-9]*` 同上，表示匹配 0 到多个数字，`?` 表示匹配 0 到 1 个该字符。
+- 整个正则表达式最外层的方括号 `[]` 表示匹配一个字符集合，其中的 `*` 表示匹配 0 到多个字符。因此整个正则表达式表示匹配 0 到多个数字，加上一个可选的小数部分。
+
+综合来说，这个正则表达式可以匹配如下字符串形式：
+
+- `123`：只包含整数部分；
+- `0`：只包含整数部分；
+- `123.456`：包含小数部分和整数部分；
+- `123.`：包含整数部分，但是小数点后面为空；
+- `0.123`：小数部分前面为 0。
+
+需要注意的是，这个正则表达式并不是万能的，它只能匹配一般的数字形式。如果你有特殊的匹配需求，可能需要根据实际情况编写更加复杂的正则表达式。
+
 ***
 # 串口相关组件
 
@@ -1059,6 +1128,24 @@ MainWindow::MainWindow(QWidget *parent) :
     ![image-20221115134146071](QT开发.assets/image-20221115134146071.png)
 
     <center><p>cd的示例</p></center>
+
+## 打包第二种方法
+
+1. 使用mingw_64或者msvc2019_64切换到release模式进行编译
+
+2. 新建一个文件夹<font color=red>（不能含有中文）</font>
+
+3. 在文件夹中放入编译完成文件夹中的exe文件
+
+4. （使用mingw_64编译有此步骤）将 `盘符:\QT\6.4.2\mingw_64\bin`中libgcc_s_seh-1.dll、libstdc++-6.dll、libwinpthread-1.dll三个动态库文件放入新建的文件夹中
+
+5. 启动Windows Powershell ，使用cd命令切换到新建的文件夹的路径下
+
+6. 执行 `盘符:\QT\6.4.2\mingw_64\bin\windeployqt.exe 文件名.exe` (使用mingw_64编译)
+
+    或者`盘符:\QT\6.4.2\msvc2019_64\bin\windeployqt.exe 文件名.exe`(使用msvc2019_64编译)
+
+目前测出QT6.4.3存在打包问题，使用6.4.2就可以正确打包
 
 ***
 

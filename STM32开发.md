@@ -251,6 +251,10 @@ ZI-data不会被算做代码里因为不会被初始化;
 - MDK 出现#68-D: integer conversion resulted in a change of sign 
 
     因为我在函数返回值处写的是uint8_t，但是我想返回-1，导致无法返回负数，返回值改成int8_t即可。
+    
+- 编译出现explicit type is missing ("int" assumed)解决方法，在函数前面加个void
+
+    [explicit type is missing ("int" assumed)解决方法_JaLLs的博客-CSDN博客](https://blog.csdn.net/JaLLs/article/details/100726066)
 
 ***
 # GPIO
@@ -1117,4 +1121,191 @@ typedef struct {
 
 > 本结构体成员用于控制是否使能DAC的输出缓冲（DAC_OUTPUTBUFFER_ENABLE/DISABLE），使能了DAC的输出缓冲后可以减小输出阻抗，适合直接驱动一些外部负载。
 
-## 
+HAL_DAC_SetValue()中设定的uint32_t范围在0到4095之间。
+
+# PWR电源管理
+
+## WFI与WFE命令
+
+```c
+ /** brief  等待中断
+
+     等待中断 是一个暂停执行指令
+     暂停至任意中断产生后被唤醒
+ */
+ #define __WFI                             __wfi
+
+
+ /** brief  等待事件
+
+     等待事件 是一个暂停执行指令
+     暂停至任意事件产生后被唤醒
+ */
+ #define __WFE                             __wfe
+```
+
+## STM32的功耗模式
+
+| 模式 | 说明                                                         | 进入方式                                                 | 唤醒方式                                                     | 对1.8V区域时钟的影响                  | 对VDD区域 时钟的影响 | 调压器                                          |
+| ---- | ------------------------------------------------------------ | -------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------- | -------------------- | ----------------------------------------------- |
+| 睡眠 | 内核停止，所有外设包括M3核心的外设，如NVIC、系统时钟(SysTick)等仍在运行 | 调用WFI命令                                              | 任一中断                                                     | 内核时钟关，对其他时钟和ADC时钟无影响 | 无                   | 开                                              |
+|      |                                                              | 调用WFE命令                                              | 唤醒事件                                                     |                                       |                      |                                                 |
+| 停止 | 所有的时钟都已停止                                           | 配置PWR_CR寄存器的PDDS +LPDS 位+SLEEPDEEP位+WFI或WFE命令 | 任一外部中断( 在外部中断寄存器中设置)                        | 关闭所有1.8V区域的时钟                | HSI和HSE的振荡器关闭 | 开启或处于低功耗模式( 依据电源控制寄存器的设定) |
+| 待机 | 1.8V 电源关闭                                                | 配置PWR_CR寄存器的PDDS +SLEEPDEEP位+WFI或WFE命令         | WKUP 引脚的上升沿、RTC闹钟事件、NRST 引脚上的外部复位、IWDG 复位 |                                       |                      | 关                                              |
+
+## 进入停止模式
+
+直接调用WFI和WFE指令可以进入睡眠模式，进入停止模式需要在调用指令前设置一些寄存器。可以使用void `HAL_PWR_EnterSTOPMode(uint32_t Regulator, uint8_t STOPEntry);`完成配置。
+
+```c
+ /**
+ * @brief 进入停止模式
+ * @note 在停止模式下所有I/O都会保持在停止前的状态
+ * @note 从停止模式唤醒后，会使用HSI作为时钟源
+ * @note 调压器若工作在低功耗模式，可减少功耗，但唤醒时会增加延迟
+ * @param Regulator: 设置停止模式时调压器的工作模式
+ *        @arg PWR_MAINREGULATOR_ON: 调压器正常运行
+ *        @arg PWR_LOWPOWERREGULATOR_ON: 调压器低功耗运行
+ * @param STOPEntry: 设置使用WFI还是WFE进入停止模式
+ *        @arg PWR_STOPENTRY_WFI: WFI进入停止模式
+ *        @arg PWR_STOPENTRY_WFE: WFE进入停止模式
+ * @retval None
+ */
+void HAL_PWR_EnterSTOPMode(uint32_t Regulator, uint8_t STOPEntry)
+```
+
+要注意的是进入停止模式后，STM32的所有I/O都保持在停止前的状态，而当它被唤醒时，STM32使用HSI作为系统时钟(8MHz)运行，由于系统时钟会影响很多外设的工作状态，所以一般我们在唤醒后会重新开启HSE，把系统时钟设置回原来的状态。
+
+### 重启HSE时钟
+
+与睡眠模式不一样，系统从停止模式被唤醒时，是使用HSI作为系统时钟的，在STM32F103中，HSI时钟一般为8MHz， 与我们常用的72MHz相关太远，它会影响各种外设的工作频率。所以需要重新去开启HSE时钟、使能PLL并且选择PLL作为时钟源。
+
+## 进入待机模式
+
+```c
+ /**
+ * @brief 进入待机模式
+ * @note 待机模式时，除了以下引脚，其余引脚都在高阻态：
+ *          - 复位引脚
+ *          - RTC_AF1 引脚 (PC13)(需要使能侵入检测、时间戳事件或RTC闹钟事件)
+ *          - RTC_AF2 引脚 (PI8) (需要使能侵入检测或时间戳事件)
+ *          - WKUP 引脚 (PA0) (需要使能WKUP唤醒功能)
+ * @retval None
+ */
+ void HAL_PWR_EnterSTANDBYMode(void)
+```
+
+在进入待机模式后，除了被使能了的用于唤醒的I/O，其余I/O都进入高阻态，而从待机模式唤醒后，相当于复位STM32芯片，程序重新从头开始执行。
+
+如果不初始化PA0的话，在正常运行模式中KEY1(PA0)按键是不能正常运行的，我们这里只是强调待机模式的WKUP唤醒不需要中断，也不需要像按键那样初始化。
+
+有四种唤醒方式，分别是WKUP(PA0)引脚的上升沿，RTC闹钟事件，NRST引脚的复位和IWDG(独立看门狗)复位。
+
+## 进入睡眠模式
+
+```c
+ /**
+ * @brief 进入睡眠模式
+ * @param Regulator: 设置停止模式时调压器的工作模式
+ *        @arg PWR_MAINREGULATOR_ON: 调压器正常运行
+ *        @arg PWR_LOWPOWERREGULATOR_ON: 调压器低功耗运行
+ * @param STOPEntry: 设置使用WFI还是WFE进入停止模式
+ *        @arg PWR_STOPENTRY_WFI: WFI进入停止模式
+ *        @arg PWR_STOPENTRY_WFE: WFE进入停止模式
+ * @retval None
+ */
+void HAL_PWR_EnterSLEEPMode(uint32_t Regulator, uint8_t SLEEPEntry)
+```
+
+需要注意的是，在使用`HAL_PWR_EnterSLEEPMode()`函数前，需要先使用`HAL_PWR_EnableSleepOnExit()`函数来开启唤醒后继续运行的状态。
+
+## 一般流程
+
+```c
+//暂停滴答时钟，防止通过滴答时钟中断唤醒
+HAL_SuspendTick();
+
+	/*设置停止模式时，FLASH进入掉电状态*/
+	HAL_PWREx_EnableFlashPowerDown();
+
+/*
+进入停止模式，设置电压调节器为低功耗模式，
+等待中断唤醒 */
+HAL_PWR_EnterSTOPMode(PWR_MAINREGULATOR_ON,PWR_STOPENTRY_WFI);
+
+//进入睡眠模式
+HAL_PWR_EnterSLEEPMode(PWR_MAINREGULATOR_ON,PWR_SLEEPENTRY_WFI);
+
+/* 进入待机模式 */
+HAL_PWR_EnterSTANDBYMode();
+
+//被唤醒后，恢复滴答时钟
+HAL_ResumeTick();
+```
+
+## PWR—PVD电源监控
+
+PVD可监控VDD的电压，当它低于阈值时可产生PVD中断(EXTI16线中断)以让系统进行紧急处理，这个阈值可以直接使用库函数PWR_PVDLevelConfig。
+
+| 阈值等级 | 条件   | 最小值 | 典型值 | 最大值 | 单位 |
+| -------- | ------ | ------ | ------ | ------ | ---- |
+| 级别0    | 上升沿 | 2.1    | 2.18   | 2.26   | V    |
+|          | 下降沿 | 2      | 2.08   | 2.16   | V    |
+| 级别1    | 上升沿 | 2.19   | 2.28   | 2.37   | V    |
+|          | 下降沿 | 2.09   | 2.18   | 2.27   | V    |
+| 级别2    | 上升沿 | 2.28   | 2.38   | 2.48   | V    |
+|          | 下降沿 | 2.18   | 2.28   | 2.38   | V    |
+| 级别3    | 上升沿 | 2.38   | 2.48   | 2.58   | V    |
+|          | 下降沿 | 2.28   | 2.38   | 2.48   | V    |
+| 级别4    | 上升沿 | 2.47   | 2.58   | 2.69   | V    |
+|          | 下降沿 | 2.37   | 2.48   | 2.59   | V    |
+| 级别5    | 上升沿 | 2.57   | 2.68   | 2.79   | V    |
+|          | 下降沿 | 2.47   | 2.58   | 2.69   | V    |
+| 级别6    | 上升沿 | 2.66   | 2.78   | 2.9    | V    |
+|          | 下降沿 | 2.56   | 2.68   | 2.8    | V    |
+| 级别7    | 上升沿 | 2.76   | 2.88   | 3      | V    |
+|          | 下降沿 | 2.66   | 2.78   | 2.9    | V    |
+
+1. 初始化PVD中断；
+2. 设置PVD电压监控等级并使能PVD；
+3. 编写PVD中断服务函数，处理紧急任务。 中断服务函数的名是PVD_IRQHandler。
+
+```c
+void PVD_Config(void)
+ {
+     PWR_PVDTypeDef sConfigPVD;
+
+     /*使能 PWR 时钟 */
+     __PWR_CLK_ENABLE();
+     /* 配置 PVD 中断 */
+     /*中断设置，抢占优先级0，子优先级为0*/
+     HAL_NVIC_SetPriority(PVD_IRQn, 0 ,0);
+     HAL_NVIC_EnableIRQ(PVD_IRQn);
+
+     /* 配置PVD级别5 (PVD检测电压的阈值为2.8V，
+     VDD电压低于2.8V时产生PVD中断，具体数据
+     可查询数据手册获知) 具体级别根据自己的
+     实际应用要求配置*/
+     sConfigPVD.PVDLevel = PWR_PVDLEVEL_5;
+     sConfigPVD.Mode = PWR_PVD_MODE_IT_RISING_FALLING;
+     HAL_PWR_ConfigPVD(&sConfigPVD);
+     /* 使能PVD输出 */
+     HAL_PWR_EnablePVD();
+ }
+ 
+ void PVD_IRQHandler(void)
+ {
+     HAL_PWR_PVD_IRQHandler();
+ }
+ /**
+ * @brief  PWR PVD interrupt callback
+ * @param  None
+ * @retval None
+ */
+ void HAL_PWR_PVDCallback(void)
+ {
+     /* 亮红灯，实际应用中应进入紧急状态处理 */
+     LED_RED;
+ }
+```
+

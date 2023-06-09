@@ -218,47 +218,53 @@ fork完成后，使用Https进行克隆，语句是`git clone <https链接> .`
 
 # Git常用的指令
 
-查看登录用户 git config --global -l
+查看登录用户 `git config --global -l`
 
-更改branch的名字 git branch -m master main
+更改branch的名字 `git branch -m master main`
 
  
 
-连接远程库git remote add origin git@github.com:PoisonNF/SGA_Demo.git (origin为name 可以换成其他名字)
-
-提交最新工程 git push origin main
+连接远程库`git remote add origin 仓库地址` (origin为name 可以换成其他名字)
 
 
 
-查看库是否关联 git remote -v
+添加所有改动到本地暂存区 `git add .`
 
-切换到main分支 git checkout main
+提交一个commit `git commit -m 改动情况简要说明`
 
-合并某个分支 git merge xxx
-
-从远程获取代码并合并本地的版本 git pull origin
+提交最新工程 `git push origin main`
 
 
 
-进行已修改或者暂存，但未提交文件的回退  git reset --hard
+查看库是否关联 `git remote -v`
 
-进行已提交，但未推送的版本回退  git reset –hard orgin/master
+切换到main分支 `git checkout main`
 
-如果已推送，首先使用git reset --hard HEAD^先回退到上一个版本，
+合并某个分支 `git merge xxx`
 
-再使用git push -f是进行强制推送，覆盖远程分支。
+从远程获取代码并合并本地的版本 `git pull origin`
+
+
+
+进行已修改或者暂存，但未提交文件的回退  `git reset --hard`
+
+进行已提交，但未推送的版本回退  `git reset –hard orgin/master`
+
+如果已推送，首先使用`git reset --hard HEAD^`先回退到上一个版本，
+
+再使用`git push -f`是进行强制推送，覆盖远程分支。
 
 
 
 # 常见问题
 
-1. git remote -v 无法找到对应的库，需要重新登录。
+1. `git remote -v`无法找到对应的库，需要重新登录。
 
 2. 如果是SSH问题，例如出现“fatal: Could not read from remote repository”,需要重新添加SSH，使用ssh-keygen -t rsa -C “邮箱名“命令，在c盘用户底下.ssh中生成pub文件，使用该pub文件在GitHub中重新添加SSH KEY
 
-3. 出现下图的问题需要将master修改成main，输入git branch -m master main
+3. 出现下图的问题需要将master修改成main，输入`git branch -m master main`
 
-修改完成后在使用git push origin main上传。
+修改完成后在使用`git push origin main`上传。
 
 （由于受到"Black Lives Matter"运动的影响，GitHub 从今年 10 月 1 日起，在该平台上创建的所有新的源代码仓库将默认被命名为 “main”，而不是原先的"master"。）
 

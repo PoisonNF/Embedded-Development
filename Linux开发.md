@@ -5180,3 +5180,223 @@ NOTIFY 是一个与其中一个 sigev_notify 常量对应的值：0 表示 SIGEV
 MQ_PRIO_MAX 一条消息的最大优先级。
 
 MQ_OPEN_MAX 一个进程最多能打开的消息队列数量
+
+## Chapter53 POSIX 信号量
+
+### 概述
+
+- 命名信号量：这种信号量拥有一个名字。通过使用相同的名字调用 sem_open()
+- 未命名信号量：这种信号量没有名字，相反，它位于内存中一个预先商定的位置处。
+
+这样可以确保`librt`库中定义的信号量相关函数能够被正确地链接到你的目标文件中。请注意，在有些系统上(run-time library search path配置不同)，可能需要使用==-pthread==选项来启用线程支持，并确保正确链接线程库。
+
+`gcc -o your_program your_program.c -pthread -lrt`
+
+### 命名信号量
+
+#### 打开一个命名信号量
+
+```c
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <semaphore.h>
+
+sem_t *sem_open(const char *name,int oflag,...
+				/* mode_t mode,unsigned int value */);
+```
+
+`sem_open()`函数接受4个参数：
+
+- `name`：要打开/创建的命名信号量的名称。
+- `oflag`：打开/创建操作的标志，可以是以下值之一：
+    - `O_CREAT`：如果该命名信号量不存在，则创建它。如果同时指定了此标志和`O_EXCL`标志，则函数仅在信号量不存在时才创建它。
+    - `O_EXCL`：仅适用于与`O_CREAT`一起使用。如果该命名信号量已经存在，则函数将返回失败。
+    - `O_RDWR`：以读写模式打开命名信号量。
+    - `O_RDONLY`：以只读模式打开命名信号量。
+    - `O_WRONLY`：以只写模式打开命名信号量。
+- `mode`：新建命名信号量所需的访问权限（仅在创建新信号量时有效），通常设置为`S_IRWXU | S_IRWXG | S_IRWXO`以允许所有用户都能访问该信号量。
+- `value`：新信号量的初始计数器值。
+
+如果函数调用成功，则返回一个指针类型的`sem_t`信号量对象；如果失败则返回`SEM_FAILED`。
+
+注意：命名信号量的名称可以任意命名，但必须以斜杠“/”开头。例如，"/example_sem"是一个有效的信号量名。在不同的进程或线程中使用相同的名称打开/创建同一命名信号量，将使它们访问同一个信号量对象。
+
+> 程序清单 53-1：使用 sem_open()打开或创建一个 POSIX 命名信号量 psem/psem_create.c
+
+#### 关闭一个信号量
+
+```c
+#include <semaphore.h>
+int sem_close(sem_t *sem);
+```
+
+关闭一个信号量并不会删除这个信号量，而要删除信号量则需要使用 sem_unlink()。
+
+#### 删除一个命名信号量
+
+```c
+#include <semaphore.h>
+int sem_unlink(const char *name);
+```
+
+> 程序清单 53-2：使用 sem_unlink()来断开链接一个 POSIX 命名信号量 psem/psem_unlink.c
+
+### 信号量操作
+
+#### 等待一个信号量
+
+```c
+#include <semaphore.h>
+int sem_wait(sem_t *sem);
+```
+
+sem_wait()函数会递减（减小 1）sem 引用的信号量的值。
+
+如果信号量的当前值大于 0，那么 sem_wait()会立即返回。如果信号量的当前值等于 0，那么 sem_wait()会阻塞直到信号量的值大于 0 为止，当信号量值大于 0 时该信号量值就被递减并且 sem_wait()会返回。
+
+> 程序清单 53-3：使用 sem_wait()来递减一个 POSIX 信号量 psem/psem_wait.c
+
+```c
+#include <semaphore.h>
+int sem_trywait(sem_t *sem);
+```
+
+非阻塞版本
+
+```c
+#include <semaphore.h>
+int sem_timedwait(sem_t *sem,const struct timespec *ads_timeout);
+```
+
+sem_timedwait()函数是 sem_wait()的另一个变体，它允许调用者为调用被阻塞的时间量指定一个限制。
+
+sem_timedwait()函数最初是在 POSIX.1d (1999)中进行规定的，所有 UNIX 实现都没有提供这个函数。
+
+#### 发布一个信号量
+
+```c
+#include <semaphore.h>
+int sem_post(sem_t *sem);
+```
+
+sem_post()函数递增（增加 1）sem 引用的信号量的值。
+
+> 程序清单 53-4：使用 sem_post()递增一个 POSIX 信号量 psem/psem_post.c
+
+#### 获取信号量的当前值
+
+```c
+#include <semaphore.h>
+int sem_getvalue(sem_t *sem,int *sval);
+```
+
+> 程序清单 53-5：使用 sem_getvalue()获取一个 POSIX 信号量的值 psem/psem_getvalue.c
+
+### 未命名信号量
+
+未命名信号量（也被称为基于内存的信号量）是类型为 sem_t 并存储在应用程序分配的内存中的变量。
+
+额外的两个函数，这两个函数不能应用于命名信号量上。
+
+- sem_init()函数对一个信号量进行初始化并通知系统该信号量会在进程间共享还是在单个进程中的线程间共享。
+- sem_destrory(sem) 销毁一个信号量。
+
+#### 未命名信号的好处
+
+- 线程间共享的信号量不需要名字。
+- 进程间共享的信号量不需要名字。
+- 动态数据结构，如二叉树，不需要为每个信号量取名字
+
+#### 初始化一个未命名信号量
+
+```c
+#include <semaphore.h>
+int sem_init(sem_t *sem,int pshared,unsigned int value);
+```
+
+pshared参数将会表明信号量在线程间共享还是在进程间共享。
+
+- 等于0时，在线程间共享。sem 通常被指定成一个全局变量的地址或分配在堆上的一个变量的地址。
+- 不等于0时，在进程间共享。sem 必须是共 享内存区域（一个 POSIX 共享内存对象、一个使用 mmap()创建的共享映射、或一个 System V 共享内存段）。
+
+未命名信号量不存在权限设置，如sem_open中的mode参数。权限由底层共享内存区域决定。
+
+#### 销毁一个未命名信号量
+
+```c
+#include <semaphore.h>
+int sem_destroy(sem_t *sem);
+```
+
+sem_destroy()函数将销毁信号量 sem,sem是通过sem_init初始化的未命名信号量。
+
+当使用 sem_destroy()销毁了一个未命名信号量之后就能够使用 sem_init()来重新初始化这个信号量了。
+
+#### POSIX信号量的优势
+
+- 接口简单
+- 与动态分配的内存对象关联起来简单
+- 在频繁的争夺信号量中，POSIX的性能与SystemV相似，但是在平时要比SystemV快很多。
+
+#### POSIX信号量的劣势
+
+- 可移植性差，在Linux2.6之后才支持命名信号量
+- 不支持 System V 信号量中的撤销特性。
+
+#### POSIX 信号量与 Pthreads 互斥体对比
+
+互斥体通常是首选方法，因为互斥体的所有权属性能够确保代码具有良好的结构性（只有锁住互斥体的线程才能够对其进行解锁）。
+
+在一种情况下要使用信号量，在信号处理器函数中同步，信号量是异步信号安全的，互斥体是不安全的。
+
+### 信号量的限制
+
+SEM_NSEMS_MAX 一个进程的信号量最大数目。Linux上受限于可用内存。
+
+SEM_VALUE_MAX 信号量的值可取的最大值。Linux/x86-32上是2147483647。
+
+## Chapter54 POSIX 共享内存
+
+### 概述
+
+现将共享对象名创建为标准文件系统上一个特殊位置处的文件，Linux 使用挂载于 /dev/shm 目录下的专用 tmpfs 文件系统。
+
+使用流程（shm_open()加上 mmap()两步式过程 是历史原因 ）
+
+1. 使用 shm_open()函数打开一个与指定的名字对应的对象。shm_open()会返回一个引用该对象的文件描述符。
+2. 将上一步中获得的文件描述符传入 mmap()调用并在其 flags 参数中指定 MAP_SHARED。这会将共享内存对象映射进进程的虚拟地址空间。
+
+### 创建共享内存对象
+
+```c
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
+
+int shm_open(const char *name,int oflag,mode_t mode);
+```
+
+name 参数标识出了待创建或待打开的共享内存对象。需要以'/'开头。
+
+oflag 参数与open中的相同。同时指定 O_EXCL 和 O_CREAT 能够确保调用者是对象的创建者。
+
+> 程序清单 54-1：创建一个 POSIX 共享内存对象 pshm/pshm_create.c
+
+### 使用共享内存对象
+
+> 程序清单 54-2：将数据复制进一个 POSIX 共享内存对象 pshm/pshm_write.c
+>
+> 程序清单 54-3：从一个 POSIX 共享内存对象中复制数据 pshm/pshm_read.c
+
+### 删除共享内存对象
+
+```c
+#include <sys/mman.h>
+
+int shm_unlink(const char *name);
+```
+
+删除一个共享内存对象。
+
+> 程序清单 54-4：使用 shm_unlink()来断开链接一个 POSIX 共享内存对象 pshm/pshm_unlink.c
+
