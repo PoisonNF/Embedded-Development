@@ -254,7 +254,25 @@ fork完成后，使用Https进行克隆，语句是`git clone <https链接> .`
 
 再使用`git push -f`是进行强制推送，覆盖远程分支。
 
+# GitHub仓库转让
 
+GitHub 仓库提供了转移的功能，在特定条件下可以转让仓库。要转让一个仓库，你必须是仓库的所有者或者是有管理员权限的成员。以下是转让仓库的步骤：
+
+1. 登录到 GitHub 个人帐户，并转到要转让的仓库。
+
+2. 点击仓库主页面右上角的“Settings”按钮。
+
+3. 在左侧的菜单中，点击“Options”。
+
+4. 在页面的底部，找到“Danger Zone”部分。
+
+5. 在这里，你可以找到“Transfer ownership”选项，点击这个选项。
+
+6. 输入要将仓库转让给的组织或个人的 GitHub 用户名，并确认转让。
+
+7. GitHub将发送确认邮件，给原始所有者和新的所有者。新的所有者需要通过邮件接受转让。
+
+当新的所有者接受转让后，就可以从他们的 GitHub 账户访问该仓库。但请注意，所有的缺陷报告、问题和贡献记录都将保留在旧仓库中，而不会转移到新所有者帐户的仓库中。
 
 # 常见问题
 
@@ -270,7 +288,7 @@ fork完成后，使用Https进行克隆，语句是`git clone <https链接> .`
 
 ![img](./Git安装与使用.assets/clip_image001.png)
 
-4.上传本地仓库时warning: LF will be replaced by CRLF in。解决的办法就是桌面右键打开git bash here的然后输入git config --global core.autocrlf false (全局有效）
+4. 上传本地仓库时warning: LF will be replaced by CRLF in。解决的办法就是桌面右键打开git bash here的然后输入git config --global core.autocrlf false (全局有效）
 
 # 参考教程
 

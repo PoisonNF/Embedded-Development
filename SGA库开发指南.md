@@ -1,10 +1,12 @@
-# SGA库开发指南
+# SGA库开发指南（Beta）
 
 ## 概述
 
 本指南为初次接触SGA库的用户指明方向，可以作为教程和工具书查阅。后续会从库函数框架、代码API、函数使用说明以及例程说明来书写本开发指南。因为在写例程的时候，库函数版本也在更新，所以有些例程中一些文件会和最新版有些出入。如有错误，还请指正。
 
 项目链接：[PoisonNF/SGA_Demo: Repair and test of SGA Library. (github.com)](https://github.com/PoisonNF/SGA_Demo)
+
+例程链接：https://pan.baidu.com/s/1JgBmoi0GzMfA20Ahl1H5_A  提取码：jao9
 
 ***
 
@@ -156,6 +158,76 @@ Driver层是对HAL库进一步封装得到的，目前驱动层已有adc、dac�
 ## 裸机开发
 
 本章节将配合**SGA库例程**中的裸机代码讲解，一步一步讲解如何使用。会涉及到各个层的使用，着重讲解水下机器人最常用的部分，例如UART串口的使用，PWM波的生成，以及一些第三方芯片的使用。
+
+### GPIO/LED点亮
+
+GPIO是所有外设的基础，本节将使用GPIO进行点灯实验。在IM板上所使用的是三原色LED，需要使用3个GPIO去调色。
+
+通过查看IM板原理图可知，三原色LED连接STM32 PD13 PD14 PD15三个I/O。分别对应RGB。且共阳级连接，程序里面输出低电平时，LED发光。
+
+![image-20230611132208220](./SGA库开发指南.assets/image-20230611132208220.png)
+
+本节使用的例程名为`SGA点亮LED例程`，实现的效果就是每秒切换LED颜色。
+
+**复现该代码：**
+
+1. 打开一个SGA_Demo工程，编译一下整个工程。显示0Error，0Warning即可。
+
+2. 在Doc文件夹中，找到`句柄资源示例.txt`,找到`/* GPIO句柄示例 */`，复制底下紧跟的结构体句柄。
+
+3. 在Apply/Logic中的config.c中粘贴。根据原理图更改I/O配置。
+
+4. 打开config.h文件，该文件在config.c最上面。
+
+5. 在config.h文件中，添加`extern tagGPIO_T demoGPIO[];`，用于向外部声明此结构体。
+
+6. 在Apply/Task->task_userinit.c ->Task_UserInit()函数中，调用`Drv_GPIO_Init(demoGPIO, 3);`
+
+7. 在Apply/Logic->usercode.c中，写入以下代码
+
+    ```c
+    /* 用户逻辑代码 */
+    void UserLogic_Code(void)
+    {
+        printf("SGA_DEMO\r\n");
+    
+    	//LED初始熄灭
+    	Drv_GPIO_Set(&demoGPIO[0]);
+    	Drv_GPIO_Set(&demoGPIO[1]);
+    	Drv_GPIO_Set(&demoGPIO[2]);
+    
+    	while(1)
+    	{
+    		//红灯
+    		Drv_GPIO_Reset(&demoGPIO[0]);
+    		Drv_GPIO_Set(&demoGPIO[1]);
+    		Drv_GPIO_Set(&demoGPIO[2]);
+    
+    		Drv_Delay_Ms(1000);
+    
+    		//绿灯
+    		Drv_GPIO_Set(&demoGPIO[0]);
+    		Drv_GPIO_Reset(&demoGPIO[1]);
+    		Drv_GPIO_Set(&demoGPIO[2]);
+    
+    		Drv_Delay_Ms(1000);
+    
+    		//蓝灯
+    		Drv_GPIO_Set(&demoGPIO[0]);
+    		Drv_GPIO_Set(&demoGPIO[1]);
+    		Drv_GPIO_Reset(&demoGPIO[2]);
+    
+    		Drv_Delay_Ms(1000);
+    	}
+    }
+    ```
+
+8. 至此，代码复现完毕，烧录程序即可产生现象。
+
+**相关讲解：**
+
+- 前6步在SGA_Demo工程中已经完成了，也可以自己操作一遍。
+- 可以同时为两个I/O输出低电平达到调色的效果。
 
 ### UART串口
 
@@ -403,6 +475,99 @@ DMA即直接存储器访问，DMA传输将数据从一个地址空间复制到�
 - 如果串口无法收到数据需要检查以下两点：1. 在复制串口结构体句柄时，检查`.tUartDMA.bRxEnable = true,	`是否使能接收。2. 在task_userinit.c中调用串口初始化函数时，注意是`Drv_Uart_DMAInit(&demoUart);`，与前几节中断模式所调用的API不同。
 - 在本例中，buf的容量上限是150。实际上，上限值需要设置为接收数据==最大长度的两倍以上==才可以完美接收。
 - 可以对buf进行帧头帧尾检测，符合通信协议要求。
+
+### 定时器
+
+在裸机开发中，定时器使用的非常多，通过使用定时器中断可以将CPU资源给其他的部分。就比如LED每1s闪烁一次，使用普通的delay延时函数会一直占用CPU资源，实际上在延时期间内CPU并不要空转等待，而是可以处理其他事务。在程序中使用较多的延时函数，会让整个系统变得迟缓，延时函数会作用在后续所有的代码上。
+
+定时器就像一个闹钟，每当时间到达，就会发出一个中断信号，然后CPU才去执行中断服务函数中的代码。
+
+接下来讲解一个实例，使用的例程名为`SGA定时器例程`。
+
+例程效果就是，LED每0.1s翻转一次红灯，每1s翻转一次蓝灯，同时一直打印"SGA_DEMO"。
+
+**复现该代码：**
+
+1. 打开一个SGA_Demo工程，编译一下整个工程。显示0Error，0Warning即可。
+
+2. 按照前面LED点亮章节，先配置LED，初始化PD13、PD14、PD15，并且将三个I/O都赋予高电平。
+
+3. 在Doc文件夹中，找到`句柄资源示例.txt`,找到`/* 定时器Timer资源结构体示例 */`，复制底下紧跟的结构体句柄。
+
+4. 在Apply/Logic中的config.c中粘贴。修改定时器的配置，一般更改定时器号和重载值（延时时间）。
+
+5. 在config.h文件中，添加`extern tagTIM_T tTimer2;`，用于向外部声明此结构体。
+
+6. 在Apply/Task->task_userinit.c ->Task_UserInit()函数中，调用`Drv_Timer_Init(&tTimer2);`进行初始化，再调用`Drv_Timer_Enable(&tTimer2);`使能定时器，开始计时。
+
+7. 在Apply/Task->task_irq.c中加入以下代码，这里使用的是定时器2。
+
+    ```c
+    extern uint8_t Timeflag_100MS;
+    extern uint8_t Timeflag_1000MS;
+    extern uint8_t Timeflag_Count;
+    /**
+     * @brief 定时器2中断服务函数
+     * @param null
+     * @retval Null
+    */
+    void TIM2_IRQHandler(void)
+    {
+    	Drv_Timer_IRQHandler(&tTimer2);
+    	
+    	Timeflag_100MS = 1;	//100ms标志位置1
+    	Timeflag_Count++;
+    	if(Timeflag_Count >= 10)
+    	{
+    		Timeflag_Count = 0;
+    		Timeflag_1000MS = 1;	//1s标志位置1
+    	}
+    }
+    ```
+
+8. 在Apply/Logic->usercode.c中，写入以下代码
+
+    ```c
+    uint8_t Timeflag_100MS;
+    uint8_t Timeflag_1000MS;
+    uint8_t Timeflag_Count;
+    
+    /* 用户逻辑代码 */
+    void UserLogic_Code(void)
+    {
+    	printf("SGA_DEMO\r\n");
+    
+    	while(1)
+    	{
+    		//串口1一直打印
+    		printf("SGA_DEMO\r\n");
+    
+    		if(Timeflag_100MS)
+    		{
+    			//红色LED翻转
+    			Drv_GPIO_Toggle(&demoGPIO[0]);
+    			//标志位清零
+    			Timeflag_100MS = 0;
+    		}
+    
+    		if(Timeflag_1000MS)
+    		{
+    			//蓝色LED翻转
+    			Drv_GPIO_Toggle(&demoGPIO[2]);
+    			//标志位清零
+    			Timeflag_1000MS = 0;
+    		}
+    	}
+    }
+    ```
+
+9. 至此，代码复现完毕，烧录程序即可产生现象。
+
+**相关讲解：**
+
+- 首先需要对LED进行配置初始化，步骤与LED点亮中相同，注意要将三个I/O赋予高电平（熄灭状态）。
+- 在task_irq.c中，每次进入定时器服务函数都说明时间过去了0.1s，将Timeflag_100MS标志位置1，进入10次服务函数说明时间过去了1s，将Timeflag_1000MS标志位置1。在主函数中读取两个标志位来产生不同的效果。
+- 在主程序中使用了相应的标志位后，需要手动将标志位清0，不然实际效果就是LED保持同一个状态。
 
 ### PWM波生成
 
@@ -717,9 +882,134 @@ JY901S是一个9轴姿态传感器，还可以检测磁场，功能很多。集�
 
 ### FATFS
 
+FATFS是一个专为小型嵌入式系统设计的文件系统，需要配合存储介质使用，一般为SD卡。在IM板有SD卡的扩展，SD卡固定使用SPI1。如果使用了SD卡相关功能，需要规避使用SPI1。
+
+在SGA库中，使用ocd_fatfs.c和ocd_sdcard.c共同完成读写操作。在使用FATFS前，先注意工程中是否有Bsp/FatFs的文件夹，里面包含了FATFS的源代码——ff.c 、diskio.c。（在SGA_Demo默认包含）
+
+本节所使用的例程名为`SGA使用FATFS文件系统例程`，需要插上SD卡才能使用。
+
+所实现的效果是，在SD卡创建一个“test”文件夹，在文件夹内新建一个“example.txt”。不断往SD卡中写入sendBuffer数组中的内容，同时写入长度如果不为0，就读出刚刚写的数据，并且从串口1打印出来。
+
+**复现该代码：**
+
+1. 打开一个SGA_Demo工程，编译一下整个工程。显示0Error，0Warning即可。
+
+2. 在Doc文件夹中，找到`句柄资源示例.txt`,找到`/* SD卡，FATFS文件系统示例 */`，复制底下紧跟的结构体句柄。
+
+3. 在Apply/Logic中的config.c中粘贴，一般保持默认不变就行。
+
+4. 在config.h文件中，添加`extern tagFATFS_T tFATFS;`，用于向外部声明此结构体。
+
+5. 在Apply/Logic->usercode.c最上面`#include "ocd_conf.h"`，打开ocd_conf.h写入`#include "ocd_fatfs.h"`
+
+6. 在Apply/Task->task_userinit.c ->Task_UserInit()函数中，调用`OCD_FATFS_Init(&tFATFS);`
+
+7. 在Apply/Logic->usercode.c中，写入以下代码
+
+    ```c
+    uint8_t File_Name[] = "/test/example.txt";
+    uint8_t Path_Name[] = "/test";
+    uint8_t sendBuffer[100] = "abcdefghijklmnopqrtsuvwxyz";
+    uint8_t receBuffer[100] = {0};
+    uint32_t sendNum = 0;
+    uint32_t receNum = 0;
+    uint32_t Offset = 0;
+    
+    int8_t ret;
+    
+    /* 用户逻辑代码 */
+    void UserLogic_Code(void)
+    {
+    	printf("SGA_DEMO\r\n");
+    	Drv_Delay_Ms(1000);
+    
+        //创建文件夹
+    	ret = OCD_FATFS_CreateDir(&tFATFS,(char *)Path_Name);
+        if(ret == FR_OK)
+            printf("创建文件夹成功 %s\r\n",Path_Name);
+        
+        else if(ret == FR_EXIST)
+            printf("文件夹已存在 %s\r\n",Path_Name);
+        
+    	while(1)
+    	{
+            //在末尾写入数据
+    		if(OCD_FATFS_Write_End(&tFATFS, (char *)File_Name, sendBuffer, sizeof("abcdefghijklmnopqrtsuvwxyz") , &sendNum) == FR_OK)
+    			printf("写入%d个字节 数据为%s\r\n",sendNum,sendBuffer);
+    
+    		Drv_Delay_Ms(500);
+    
+            //如果写入数据长度不为0
+    		if(sendNum != 0)
+                //从偏移量处读取相同长度数据
+    			if(OCD_FATFS_Read_SpecifyIndex(&tFATFS, (char *)File_Name ,receBuffer,sendNum,Offset,&receNum) == FR_OK)
+                {
+                    printf("从偏移量%d 读到%d个字节 数据为%s\r\n",Offset,receNum,receBuffer);
+                    //偏移量累加
+                    Offset += receNum;
+                }
+    	}
+    }
+    ```
+    
+8. 至此，代码复现完毕，烧录程序即可产生现象。
+
+**相关讲解：**
+
+- 使用FATFS文件系统时，不需要手动去初始化SD卡，这个操作在`OCD_FATFS_Init(&tFATFS);`中已经完成了，其内部有关于SD卡的初始化。
+- OCD_FATFS_Write_End()注意最后一个参数是记录发送数目的指针，是函数的返回值之一。读取函数同理。
+
 ### OLED
 
+OLED可以显示很多数据信息，有各种各样的尺寸，一般使用0.96寸的。在SGA库中所使用的是4线IIC驱动方式。意思就是OLED只需要接4根线就可以完成显示，即VCC、GND、SCL、SDA。OLED在调试和交互中起到很大的作用，但在水下机器人领域没什么用。
 
+本节所使用的例程名为`SGA_OLED例程`，需要接OLED才能使用。
+
+所实现的效果是，OLED上显示各种大小的字母或者数字，还有浮点数。
+
+**复现该代码：**
+
+1. 打开一个SGA_Demo工程，编译一下整个工程。显示0Error，0Warning即可。
+
+2. 在Doc文件夹中，找到`句柄资源示例.txt`,找到`/* OLED示例 */`，复制底下紧跟的结构体句柄。
+
+3. 在Apply/Logic中的config.c中粘贴，一般保持默认不变就行。
+
+4. 在config.h文件中，添加`extern tagOLED_T tOLED;`，用于向外部声明此结构体。
+
+5. 在Apply/Logic->usercode.c最上面`#include "ocd_conf.h"`，打开ocd_conf.h写入`#include "ocd_oled.h"`
+
+6. 在Apply/Task->task_userinit.c ->Task_UserInit()函数中，调用`OCD_OLED_Init(&tOLED);`
+
+7. 在Apply/Logic->usercode.c中，写入以下代码
+
+    ```c
+    /* 用户逻辑代码 */
+    void UserLogic_Code(void)
+    {
+    	printf("SGA_DEMO\r\n");
+    
+    	/* OLED显示各种不同的数据 */
+    	OCD_OLED_ShowString(&tOLED,0,0,"OLED Test",16);
+    	OCD_OLED_ShowString(&tOLED,0,2,"Menu",8);
+    	OCD_OLED_ShowString(&tOLED,0,3,"Setting",8);
+    	OCD_OLED_ShowString(&tOLED,0,4,"Exit",16);
+    	OCD_OLED_ShowNum(&tOLED,0,6,12345678,8,8);
+    	OCD_OLED_ShowFNum(&tOLED,0,7,0.111,8);
+    
+    	while(1)
+    	{
+    
+    	}
+    }
+    ```
+
+8. 至此，代码复现完毕，烧录程序即可产生现象。
+
+**相关讲解：**
+
+- 在句柄示例中，默认使用的是PA0（SCL）、PA1（SDA）。可以按照原理图自行更改，任选两个I/O即可。
+- 字库里有6\*8以及8\*16两个规格的字体，由于0.96寸OLED是128\*64的大小，所以如果只使用8\*16的字体只能显示4排；如果只使用6\*8的字体只能显示8排。
 
 
 ***
@@ -730,15 +1020,77 @@ JY901S是一个9轴姿态传感器，还可以检测磁场，功能很多。集�
 
 ### RT-Thread内核移植
 
+我所移植的RT-Thread版本为3.15。内核文件都在放在./Bsp/RTOS/RT-Thread下。
+
+内核移植操作如下：
+
+1. 在使用RT-Thread前，需要将内核文件放入工程中。在工程中创建一个文件夹名字叫RT-Thread。
+
+2. 在内核文件夹中找到以下文件并且放入工程RT-Thread文件夹中。
+
+    ![image-20230610151738477](./SGA库开发指南.assets/image-20230610151738477.png)
+
+3. 头文件路径的添加工程中已经处理好了，可以在Options for Target 中的 C/C++选项卡中include path查看。
+
+当然在SGA库例程中也有对应的模板借鉴，也可以直接使用（版本定死了，推荐自己用最新版本移植一下）。
+
+可以参考例程`SGA使用RT-Thread模板`
+
 ### FreeRTOS内核移植
+
+我所移植的FreeRTOS内核版本为V10.0.1。内核文件都在放在./Bsp/RTOS/FreeRTOS下。
+
+1. 在使用FreeRTOS前，需要将内核文件放入工程中。在工程中创建一个文件夹名字叫FreeRTOS。
+
+2. 在内核文件夹中找到以下文件并且放入工程FreeRTOS文件夹中。
+
+    ![image-20230610152753785](./SGA库开发指南.assets/image-20230610152753785.png)
+
+3. 头文件路径的添加工程中已经处理好了，可以在Options for Target 中的 C/C++选项卡中include path查看。
+
+当然在SGA库例程中也有对应的模板借鉴，也可以直接使用（版本定死了，推荐自己用最新版本移植一下）。
+
+可以参考例程`SGA使用FreeRTOS模板`
 
 ### RTOS的使用
 
+上面只是将内核导入到SGA库中，下面要进行一步操作将RTOS启用。
+
+1. 找到drv_hal_conf.h文件，在文件的顶部有关于RT-Thread和FreeRTOS的开关宏定义。
+
+```c
+/* RT-Thread开关 使用RTT时需解除注释，且在工程中导入RTT相关内核 */ 
+//#define RTT_ENABLE               
+#ifdef RTT_ENABLE
+#include <rtthread.h>		/* RTT相关头文件 */
+#include "threadpool.h"		/* threadpool头文件 */ 
+#endif
+
+/* FreeRTOS开关 使用时需解除注释，且在工程中导入FreeRTOS相关内核 */ 
+#define FREERTOS_ENABLE
+#ifdef FREERTOS_ENABLE
+#include "cmsis_os.h"		/* FreeRTOS相关头文件 */
+#include "croutine.h"
+#include "event_groups.h"
+#include "stream_buffer.h"
+#include "threadpool.h"		/* threadpool头文件 */
+#endif
+```
+
+2. 默认两者都是被注释掉的，选择其一解除注释，（不能同时解除）。当注释解除之后，库函数内部会将一些函数的实现变换为RTOS的方式，就比如延时函数。
+3. 编译工程，如果没有报错即可使用，如果有报错，检查一下文件是否添加正确，宏定义是否解除注释。
 
 
-***
 
-## API说明
+下面将要讲解一下两个系统的简单使用，使用的例程为`SGA_RTOS例程`。
 
-***
+实现的效果是创建两个线程，两个线程会交替打印文本。其中还使用了信号量与互斥量。
+
+这部分就不代码复现了，可以找到例程自行查看。
+
+**主要说明要注意的点：**
+
+1. 在使用RTOS的时候，我的建议是usercode.c写入线程的配置初始化，信号量互斥量的初始化，等等。线程的入口函数写在threadpool.c中。在本例中入口函数Task1和Task2就放在threadpool.c中。
+2. 代码中支持RT-Thread和FreeRTOS的切换，在切换的时候需要再次导入内核文件，同时去drv_hal_conf.h更改一下宏定义的配置。
+3. 本例中FreeRTOS使用的是CMSIS的API，与FreeRTOS原生API（xTask）不太一样，其实是对原生API的进一步封装。
 
