@@ -409,7 +409,7 @@ GPIO是所有外设的基础，本节将使用GPIO进行点灯实验。在IM板�
 
 ###### API方法
 
-在SGA库例程中还有一种API方法，该方法就是将上节结构体方式的回调函数内部实现封装成了一个函数，可以直接调用，该函数位于Driver/drv_hal_uart.c中470行`void Drv_Uart_IT_RxHandler(tagUART_T *_tUART)`可以通过注释自行了解。该方法也有一个弊端，目前API只检测'\n'结尾，不排除后续增加识别指定结尾符的功能。
+在SGA库例程中还有一种API方法，该方法就是将上节结构体方式的回调函数内部实现封装成了一个函数，可以直接调用，该函数位于Driver/drv_hal_uart.c中470行`void Drv_Uart_IT_RxHandler(tagUART_T *_tUART, uint8_t _ucEndChar)`可以通过注释自行了解。
 
 ##### DMA模式
 
@@ -633,6 +633,8 @@ PWM简称脉宽调制。推进器和舵机都需要PWM波去驱动。一般都�
 - 在第3步中，为什么是PA6和PA7这两个I/O？这其实是STM32内部定死的，但是存在一定的改变空间，也被称作重映射。下面我放一张表格，上面就是SMT32F1定时器所有的映射表，表中TIMx代表定时器几，（TIM6和TIM7不能输出PWM波）。CHx代表通道几，CHxN代表互补通道。第一列为默认I/O，第二列为部分重映射，第三列为完全重映射，需要在I/O配置的时候将.tGPIO.ucAFMode成员赋予NO_REMAP（默认）、PARTIAL_REMAP（部分重映射）、PARTIAL_REMAP2（部分重映射2 仅TIM2独有）、FULL_REMAP（完全重映射）。按照例程中就是TIM3，通道1和2，保持默认，也就是PA6、PA7。
 
     ![image-20230607221547246](SGA库开发指南.assets/image-20230607221547246.png)
+    
+    ![image-20230709165151184](SGA库开发指南.assets/image-20230709165151184.png)
     
 - 在对PWM输出引脚进行配置的时候，可以一次性配置多个，只需要按照顺序[0],[1],[2]写下去就行，并且在第6步初始化的时候，Drv_PWM_Init()中第二个参数中写上初始化PWM波的个数，本例中是2个。
 

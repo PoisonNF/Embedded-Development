@@ -128,13 +128,15 @@
 
     经过优化过后的程序，主要使用了C++的STL容器和SQLite中的事务处理函数。将收集到的数据存入容器中，等收集完成后再开启事务一次性写入到数据库中。事务处理函数在处理大量数据时，有着显著的优势。
 
-    4. **问题：**在写多线程数据库访问时，出现控制台错误**requested database does not belong to the calling thread.**
-    
+4. **问题：**在写多线程数据库访问时，出现控制台错误**requested database does not belong to the calling thread.**
+   
     **原因：**创建数据库连接和使用数据库连接不在一个线程中
     
     **解决：**在子程序访问数据库时，需要指定数据库对象名。例如`QSqlQuery query(checkstr,db);`
     
     这里的db就是需要访问的数据库对象名。
+    
+5. 在使用第三方库时，上传到GitHub，有部分.dll动态库无法上传，例如SDL2.dll。在打包的时候，打包工具也不会将该动态库放入文件夹中，需要自己手动添加。
 
 ***
 
@@ -1090,6 +1092,310 @@ MainWindow::MainWindow(QWidget *parent) :
 
 
 ***
+
+# 手柄控制
+
+## QGamepad
+
+QGamepad只能在QT5中使用，是QT内部的一个模块，可以非常方便的控制手柄。
+
+优点：
+
+1. 非常方便的使用，只需要在.pro文件中加上`QT += gamepad`就可以使用相关函数
+2. 连接简单，一句函数就能成功
+
+缺点：
+1. 每个按键都需要单独设置一个槽函数，比较麻烦
+2. 只能在QT5上使用，QT6需要使用下面的QJoysticks
+
+```C++
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent)
+    , ui(new Ui::MainWindow)
+{
+    ui->setupUi(this);
+
+    //连接设备
+    QGamepad *m_gamepad = new QGamepad(0, this);
+    qDebug() << m_gamepad->deviceId();
+
+    // 连接手柄的axisLeftXChanged()和axisLeftYChanged()信号，每次信号触发时会输出手柄的X和Y轴模拟量
+    QObject::connect(m_gamepad, &QGamepad::axisLeftXChanged, [](double value) {
+        //qDebug() << "X:" << value;
+        LeftX = value;
+    });
+
+    QObject::connect(m_gamepad, &QGamepad::axisLeftYChanged, [](double value) {
+        //qDebug() << "Y:" << value;
+        LeftY = value;
+    });
+
+    // 创建一个定时器，每500ms执行一次
+    QTimer *timer = new QTimer(this);
+    timer->setInterval(500);
+
+    connect(timer, &QTimer::timeout,this,[](){
+        if(LeftX != 0)
+            qDebug() << "X:" << LeftX;
+        if(LeftY != 0)
+            qDebug() << "Y:" << LeftY;
+    });
+
+    // 启动定时器和事件循环
+    timer->start();
+
+//    connect(m_gamepad, &QGamepad::axisLeftXChanged, this, [](double value){
+//        qDebug() << "Left X" << value;
+//    });
+//    connect(m_gamepad, &QGamepad::axisLeftYChanged, this, [](double value){
+//        qDebug() << "Left Y" << value;
+//    });
+//    connect(m_gamepad, &QGamepad::axisRightXChanged, this, [](double value){
+//        qDebug() << "Right X" << value;
+//    });
+//    connect(m_gamepad, &QGamepad::axisRightYChanged, this, [](double value){
+//        qDebug() << "Right Y" << value;
+//    });
+    connect(m_gamepad, &QGamepad::buttonAChanged, this, [this](bool pressed){
+        switch (pressed) {
+            case true:
+                this->ui->BT_A->setStyleSheet(BTN_color);
+                //qDebug() << "Button Atrue:" ;
+                break;
+            case false:
+                this->ui->BT_A->setStyleSheet(BTN_color2);
+                //qDebug() << "Button Afalse:" ;
+            break;
+        }
+        //qDebug() << "Button A" << pressed;
+    });
+    connect(m_gamepad, &QGamepad::buttonBChanged, this, [this](bool pressed){
+        switch (pressed) {
+            case true:
+                this->ui->BT_B->setStyleSheet(BTN_color);
+                //qDebug() << "Button Atrue:" ;
+                break;
+            case false:
+                this->ui->BT_B->setStyleSheet(BTN_color2);
+                //qDebug() << "Button Afalse:" ;
+            break;
+        }
+        //qDebug() << "Button B" << pressed;
+    });
+    connect(m_gamepad, &QGamepad::buttonXChanged, this, [this](bool pressed){
+        switch (pressed) {
+            case true:
+                this->ui->BT_X->setStyleSheet(BTN_color);
+                //qDebug() << "Button Atrue:" ;
+                break;
+            case false:
+                this->ui->BT_X->setStyleSheet(BTN_color2);
+                //qDebug() << "Button Afalse:" ;
+            break;
+        }
+        //qDebug() << "Button X" << pressed;
+    });
+    connect(m_gamepad, &QGamepad::buttonYChanged, this, [this](bool pressed){
+        switch (pressed) {
+            case true:
+                this->ui->BT_Y->setStyleSheet(BTN_color);
+                //qDebug() << "Button Atrue:" ;
+                break;
+            case false:
+                this->ui->BT_Y->setStyleSheet(BTN_color2);
+                //qDebug() << "Button Afalse:" ;
+            break;
+        }
+        //qDebug() << "Button Y" << pressed;
+    });
+    connect(m_gamepad, &QGamepad::buttonL1Changed, this, [this](bool pressed){
+        switch (pressed) {
+            case true:
+                this->ui->BT_L1->setStyleSheet(BTN_color);
+                //qDebug() << "Button Atrue:" ;
+                break;
+            case false:
+                this->ui->BT_L1->setStyleSheet(BTN_color2);
+                //qDebug() << "Button Afalse:" ;
+            break;
+        }
+        //qDebug() << "Button L1" << pressed;
+    });
+    connect(m_gamepad, &QGamepad::buttonR1Changed, this, [this](bool pressed){
+        switch (pressed) {
+            case true:
+                this->ui->BT_R1->setStyleSheet(BTN_color);
+                //qDebug() << "Button Atrue:" ;
+                break;
+            case false:
+                this->ui->BT_R1->setStyleSheet(BTN_color2);
+                //qDebug() << "Button Afalse:" ;
+            break;
+        }
+        //qDebug() << "Button R1" << pressed;
+    });
+    connect(m_gamepad, &QGamepad::buttonL2Changed, this, [](double value){
+        qDebug() << "Button L2: " << value;
+    });
+    connect(m_gamepad, &QGamepad::buttonR2Changed, this, [](double value){
+        qDebug() << "Button R2: " << value;
+    });
+    connect(m_gamepad, &QGamepad::buttonSelectChanged, this, [this](bool pressed){
+        switch (pressed) {
+            case true:
+                this->ui->BT_SELECT->setStyleSheet(BTN_color);
+                //qDebug() << "Button Atrue:" ;
+                break;
+            case false:
+                this->ui->BT_SELECT->setStyleSheet(BTN_color2);
+                //qDebug() << "Button Afalse:" ;
+            break;
+        }
+        //qDebug() << "Button Select" << pressed;
+    });
+    connect(m_gamepad, &QGamepad::buttonStartChanged, this, [this](bool pressed){
+        switch (pressed) {
+            case true:
+                this->ui->BT_START->setStyleSheet(BTN_color);
+                //qDebug() << "Button Atrue:" ;
+                break;
+            case false:
+                this->ui->BT_START->setStyleSheet(BTN_color2);
+                //qDebug() << "Button Afalse:" ;
+            break;
+        }
+        //qDebug() << "Button Start" << pressed;
+    });
+    connect(m_gamepad, &QGamepad::buttonGuideChanged, this, [](bool pressed){
+        qDebug() << "Button Guide" << pressed;
+    });
+
+    connect(m_gamepad, &QGamepad::buttonUpChanged, this, [this](bool pressed){
+        switch (pressed) {
+            case true:
+                this->ui->BT_UP->setStyleSheet(BTN_color);
+                //qDebug() << "Button Atrue:" ;
+                break;
+            case false:
+                this->ui->BT_UP->setStyleSheet(BTN_color2);
+                //qDebug() << "Button Afalse:" ;
+            break;
+        }
+        //qDebug() << "buttonUp" << pressed;
+    });
+    connect(m_gamepad, &QGamepad::buttonDownChanged, this, [this](bool pressed){
+        switch (pressed) {
+            case true:
+                this->ui->BT_DOWN->setStyleSheet(BTN_color);
+                //qDebug() << "Button Atrue:" ;
+                break;
+            case false:
+                this->ui->BT_DOWN->setStyleSheet(BTN_color2);
+                //qDebug() << "Button Afalse:" ;
+            break;
+        }
+        //qDebug() << "buttonDown" << pressed;
+    });
+    connect(m_gamepad, &QGamepad::buttonLeftChanged, this, [this](bool pressed){
+        switch (pressed) {
+            case true:
+                this->ui->BT_LEFT->setStyleSheet(BTN_color);
+                //qDebug() << "Button Atrue:" ;
+                break;
+            case false:
+                this->ui->BT_LEFT->setStyleSheet(BTN_color2);
+                //qDebug() << "Button Afalse:" ;
+            break;
+        }
+        //qDebug() << "buttonLeft" << pressed;
+    });
+    connect(m_gamepad, &QGamepad::buttonRightChanged, this, [this](bool pressed){
+        switch (pressed) {
+            case true:
+                this->ui->BT_RIGHT->setStyleSheet(BTN_color);
+                //qDebug() << "Button Atrue:" ;
+                break;
+            case false:
+                this->ui->BT_RIGHT->setStyleSheet(BTN_color2);
+                //qDebug() << "Button Afalse:" ;
+            break;
+        }
+        //qDebug() << "buttonRight" << pressed;
+    });
+}
+```
+
+## QJoysticks
+
+QJoysticks是一个第三方手柄控制库，源码位于[alex-spataru/QJoysticks: Joystick input library for Qt (github.com)](https://github.com/alex-spataru/QJoysticks)
+
+使用步骤：
+
+1. 克隆该库，并且放入工程文件夹中
+2. 在.pro文件中加入include(Qjoysticks/Qjoysticks.pri)
+3. 在头文件中\#include "QJoysticks.h"
+4. 在cpp文件中m_joystick = QJoysticks::getInstance();获取当前可用手柄对象
+
+```c++
+MainWindow::MainWindow(QWidget *parent)
+    : QMainWindow(parent)
+    , ui(new Ui::MainWindow)
+{
+    ui->setupUi(this);
+
+    m_joystick = QJoysticks::getInstance();
+
+    connect(m_joystick, SIGNAL(axisChanged(int, int, qreal)), this, SLOT(joysitck_axis(int, int, qreal)));
+    //connect(m_joystick, &QJoysticks::axisEvent, this, &MainWindow::event_axis);
+
+    connect(m_joystick, SIGNAL(buttonChanged(int, int, bool)), this, SLOT(joysitck_button(int, int, bool)));
+    //connect(m_joystick, &QJoysticks::buttonEvent, this, &MainWindow::event_button);
+}
+
+void MainWindow::scan_joysticks()
+{
+    m_joystick->setVirtualJoystickEnabled (true);    //启用虚拟手柄
+    m_joystick->setVirtualJoystickRange (1);    //设置虚拟手柄摇杆范围[-1,1]
+    QStringList js_names = m_joystick->deviceNames();    //添加手柄
+    qDebug() << js_names;
+}
+
+void MainWindow::joysitck_axis(int js_index, int axis_index, qreal value)
+{
+    if (m_joystick->joystickExists(js_index)){
+        //左右
+        if (axis_index == 0){
+            // axis range [-1, 1] -> range [0, 1000];
+            qDebug() << "x" << value*500+500;
+        }
+        //上下
+        if (axis_index == 1){
+            // axis range [-1, 1] -> range [0, 1000];
+            qDebug() << "y" << value*500+500;
+        }
+
+    }
+}
+
+void MainWindow::event_axis(const QJoystickAxisEvent &event)
+{
+    qDebug() << "axis" << event.axis << "value" << event.value;
+}
+
+void MainWindow::joysitck_button(int js_index, int button_index, bool pressed)
+{
+    if (m_joystick->joystickExists(js_index)){
+        qDebug() << button_index << pressed;
+    }
+}
+
+void MainWindow::event_button(const QJoystickButtonEvent &event)
+{
+    qDebug() << "button" <<event.button << "pressed" << event.pressed;
+}
+```
+
+
 
 # 打包和部署
 

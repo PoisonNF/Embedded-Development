@@ -238,3 +238,106 @@ code：表示该类事件下的哪一个事件
 value：表示事件值
 
 同步事件也是一个 input_event 结构体，它的 type、code、value 三项都是 0，APP 已经读到了完整的数据。
+
+## 网络编程
+
+TCP：可靠，重传
+
+UDP：不可靠
+
+[Linux下TCP/IP网络编程示例——实现服务器/客户端通信（一）_linux tcp/ip编程例子_Mr_XJC的博客-CSDN博客](https://blog.csdn.net/Mr_XJC/article/details/106788694)
+
+## 串口
+
+### TTY
+
+在 Linux 或 UNIX 中，TTY 变为了一个抽象设备。有时它指的是一个物理输入设备，例如串口，有时它指的是一个允许用户和系统交互的虚拟 TTY。
+
+TTY 是 Linux 或 UNIX 的一个子系统，它通过 TTY 驱动程序在内核级别实现进程管理、行编辑和会话管理。
+
+在大多数 *发行版* 中，你可以使用以下键盘快捷键来得到 TTY 屏幕：
+
+- `CTRL + ALT + F1` – 锁屏
+- `CTRL + ALT + F2` – 桌面环境
+- `CTRL + ALT + F3` – TTY3
+- `CTRL + ALT + F4` – TTY4
+- `CTRL + ALT + F5` – TTY5
+- `CTRL + ALT + F6` – TTY6
+
+TTY0指向前台程序。
+
+使用/dev/tty找到当前程序所使用的终端
+
+### Terminal和Console的区别
+
+Terminal含有远端的意思，Console为控制台，具有更大的权限，能查看更多的信息。
+
+- 某一个Terminal可以是Console
+- 不是所有Terminal都是Console
+
+可以通过内核的cmdline指定控制台，比如console=ttyS0 console=tty，当console有多个取值时，使用最后一个取值来判断。
+
+可以在Ubuntu启动时按住Esc进入内核设置界面，选择第二项Advanced options for Ubuntu，按E进入。找到带有quiet splash 的Linux那行，quiet可以删掉，然后显示出完整的内核启动过程，可以加上console=ttyS0来选择控制台。按F10保存重启。
+
+
+
+行规程Line discipline
+
+`stty -a `命令显示终端行规程的配置
+
+[Linux终端和Line discipline图解_dog250的博客-CSDN博客](https://blog.csdn.net/dog250/article/details/78818612#:~:text=行规程规定了键盘,给出相应的输出。)
+
+## I2C
+
+在命令行中使用`i2cdetect -l`可以显示所有I2C总线
+
+```shell
+[root@imx6ull:~]# i2cdetect -l
+i2c-1   i2c             21a4000.i2c                             I2C adapter
+i2c-0   i2c             21a0000.i2c                             I2C adapter
+```
+
+`i2cdetect -y 1`显示I2C1上挂载的设备
+
+```shell
+[root@imx6ull:~]# i2cdetect -y 1
+     0  1  2  3  4  5  6  7  8  9  a  b  c  d  e  f
+00:          -- -- -- -- -- -- -- -- -- -- -- -- --
+10: -- -- -- -- -- -- -- -- -- -- UU -- -- -- -- --
+20: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+30: -- -- -- -- -- -- -- -- -- UU -- -- -- -- -- --
+40: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+50: -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+60: 60 -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+70: -- -- -- -- -- -- -- --
+
+```
+
+在开发板上有AP3216C三合一（红外、光强、距离）传感器
+
+- 复位：往寄存器0写入0x4
+- 使能：往寄存器0写入0x3
+- 读光强：读寄存器0xc、0xd得到2字节的数据
+- 读距离：读寄存器0xe、0xf得到2字节的数据
+
+AP3216C设备地址为0x1e，在i2c0上
+
+- 使用SMBus协议
+
+    ```shell
+    [root@imx6ull:~]# i2cset -f -y 0 0x1e 0 0x4
+    [root@imx6ull:~]# i2cset -f -y 0 0x1e 0 0x3
+    [root@imx6ull:~]# i2cget -f -y 0 0x1e 0xc 2
+    [root@imx6ull:~]# i2cget -f -y 0 0x1e 0xc w
+    ```
+
+- 使用I2C协议
+
+    ```shell
+    [root@imx6ull:~]# i2ctransfer -f -y 0 w2@0x1e 0 0x4
+    [root@imx6ull:~]# i2ctransfer -f -y 0 w2@0x1e 0 0x3
+    [root@imx6ull:~]# i2ctransfer -f -y 0 w1@0x1e 0xc r2
+    [root@imx6ull:~]# i2ctransfer -f -y 0 w1@0x1e 0xe r2
+    ```
+
+    
