@@ -420,6 +420,42 @@ QWidget类定义了以下虚函数提供对键盘事件的处理，其参数QKey
 
 因此需要合理布局，在ui文件中布局后编译会自动产生对应的C++代码。
 
+---
+
+# 样式表
+
+通过setStyleSheet方法设置样式表
+
+需要在代码中先加入`xxxxxx->setView(new QListView()); `  //下拉列表样式表才能生效
+
+下面是给QComboBox增加样式
+
+```c++
+    QString sheet = "\
+            QComboBox {\
+                border: 1px solid gray; \
+                border-radius: 3px;\
+                padding: 1px 18px 1px 3px; \
+                color: #000;\
+                font: normal normal 15px Microsoft YaHei;\
+                background: transparent;\
+            }\
+            QComboBox QAbstractItemView {\
+                font-family: Microsoft YaHei;\
+                font-size: 15px;\
+                border:1px solid rgba(0,0,0,10%);\
+                border-radius: 3px;\
+                padding:5px;\
+                background-color: #FFFFFF;\
+            }\
+            ";
+
+    PIDComboBox->setView(new QListView());
+    PIDComboBox->setStyleSheet(sheet);
+```
+
+[QComboBox样式设置——Qt_qcombobox::drop-down_十年之少的博客-CSDN博客](https://blog.csdn.net/xiaopei_yan/article/details/107404698)
+
 ***
 
 # 界面的切换
@@ -983,7 +1019,7 @@ connect(this,&MainWindow::destroyed,this,[=]()
     t1->quit();
     t1->wait();
     t1->deleteLater(); //或者delete t1;
-}
+});
 ```
 
 ## 两种多线程方式对比
@@ -1089,6 +1125,92 @@ MainWindow::MainWindow(QWidget *parent) :
 ```
 
 > 案例十使用了该方法，具体代码在相关案例中（案例八九十要求相同）
+
+## 串口多线程
+
+使用QThread方法
+
+```c++
+//主UI内
+		//启动数据接收线程
+        qDebug() << "外部serial" << serial;
+        SRDThread = new SerialReadData(serial);
+        SRDThread->start();
+        connect(serial,&QSerialPort::readyRead,SRDThread,[=](){
+            SRDThread->m_startRequested = true;
+        });
+
+//线程类中
+SerialReadData::SerialReadData(QSerialPort *serial,QObject *parent)
+    : QThread{parent}
+{
+    Q_UNUSED(parent);
+    qDebug() << "构造serial" <<serial;
+    m_pserial = serial;
+    qDebug() << "串口复制" << m_pserial;
+}
+
+void SerialReadData::run()
+{
+    while(1)
+    {
+        if(m_startRequested)
+        {
+            serialBuf = QString(m_pserial->readLine());
+            if(!serialBuf.isEmpty())
+            {
+                qDebug() << serialBuf;
+                QStringList ProcessedData = serialBuf.split(u' ');
+                qDebug() << ProcessedData;
+                //发射信号给datadisplay窗口
+                emit uiDataDisplay(serialBuf);
+                emit dataSort(serialBuf);
+            }
+            m_startRequested = false;
+        }
+    }
+    exec();
+}
+```
+
+使用QObject方法
+
+```c++
+//主UI内
+		//启动数据接收线程
+        qDebug() << "外部serial" << serial;
+
+        QThread *t1 = new QThread;
+        SRDThread = new SerialReadData(serial);
+        SRDThread->moveToThread(t1);
+        t1->start();
+        connect(serial,&QSerialPort::readyRead,SRDThread,&SerialReadData::working);
+
+//线程类中
+SerialReadData::SerialReadData(QSerialPort *serial,QObject *parent)
+    : QObject{parent}
+{
+    Q_UNUSED(parent);
+    qDebug() << "构造serial" <<serial;
+    m_pserial = serial;
+    qDebug() << "串口复制" << m_pserial;
+}
+
+void SerialReadData::working()
+{
+    serialBuf = QString(m_pserial->readLine());
+    if(!serialBuf.isEmpty())
+    {
+        qDebug() << serialBuf;
+        QStringList ProcessedData = serialBuf.split(u' ');
+        qDebug() << ProcessedData;
+        //发射信号给datadisplay窗口
+        emit uiDataDisplay(serialBuf);
+        emit dataSort(serialBuf);
+    }
+}
+```
+
 
 
 ***
@@ -1423,6 +1545,8 @@ void MainWindow::event_button(const QJoystickButtonEvent &event)
 
 ## 打包封装
 
+## 使用QT控制台
+
 1. 使用QT的控制台，新建一个文件夹<font color=red>（不能含有中文）</font>，放置生成的包。
 
 2. 将release中的exe文件拷贝到上述新建文件夹中。
@@ -1435,7 +1559,7 @@ void MainWindow::event_button(const QJoystickButtonEvent &event)
 
     <center><p>cd的示例</p></center>
 
-## 打包第二种方法
+## 使用Windows Powershell
 
 1. 使用mingw_64或者msvc2019_64切换到release模式进行编译
 
