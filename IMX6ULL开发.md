@@ -1480,7 +1480,7 @@ bcl@bcl-virtual-machine:~/nfs/rootfs$ mkdir root
 
 #### 设置Uboot的root值关联nfs下的rootfs
 
-```
+```shell
 setenv bootargs 'console=ttymxc0,115200 root=/dev/nfs nfsroot=192.168.5.11:
 /home/bcl/nfs/rootfs,proto=tcp rw ip=192.168.5.9:192.168.5.11:192.168.5.1:
 255.255.255.0::eth0:off' //设置 bootargs
@@ -1749,6 +1749,8 @@ static inline void unregister_chrdev(unsigned int major, const char *name)
 
 “cat /proc/devices”可以查看当前已经被使用掉的设备号
 
+major填0会自动分配主设备号
+
 ### 实现设备的具体操作函数
 
 能够对 chrtest 进行打开和关闭操作
@@ -1778,13 +1780,13 @@ MODULE_AUTHOR("bcl");//添加模块作者信息
 
 ### 设备号的组成
 
-设备号是一个无符号32位整型，32位数据分为主设备号和次设备号，其中高 12 位为主设备号，低 20 位为次设备号。所以主设备号为0~4095。
+设备号是一个无符号32位整型，32位数据分为主设备号和次设备号，其中高 12 位为主设备号，低 20 位为次设备号。所以主设备号为0~4095。使用cat /proc/devices查看主设备号或者使用ls -l /dev查看主次设备号。
 
 ### 设备号的分配
 
 #### 静态分配设备号
 
-有一些常用的设备号已经被 Linux 内核开发者给分配掉了，具体分配的内容可以查看文档 Documentation/devices.txt。具体能不能用还得看我们的硬件平台运行过程中有没有使用这个主设备号，选择一个没使用的即可。或者使用cat /proc/devices查看。
+有一些常用的设备号已经被 Linux 内核开发者给分配掉了，具体分配的内容可以查看文档 Documentation/devices.txt。具体能不能用还得看我们的硬件平台运行过程中有没有使用这个主设备号，选择一个没使用的即可。
 
 #### 动态分配设备号
 
@@ -1798,7 +1800,190 @@ void unregister_chrdev_region(dev_t from, unsigned count)
 
 ## chrdevbase 字符设备驱动开发实验
 
-### 编译驱动程序和测试 APP
+[linux驱动开发--copy_to_user 、copy_from_user函数实现内核空间数据与用户空间数据的相互访问-阿里云开发者社区 (aliyun.com)](https://developer.aliyun.com/article/30152)
+
+### 代码框架
+
+```c
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+
+#define CHRDEVBASE_MAJOR    0               //主设备号
+#define CHRDEVBASE_NAME     "chrdevbase"    //设备名
+
+static int chrdevbase_open(struct inode *inode,struct file *filp)
+{
+    printk("chrdevbase_open\n");
+    return 0;
+}
+
+static int chrdevbase_release(struct inode *inode,struct file *file)
+{
+    printk("chrdevbase_release\n");
+    return 0;
+}
+
+static ssize_t chrdevbase_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
+{
+    printk("chrdevbase_read\n");
+    return 0;
+}
+
+static ssize_t chrdevbase_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos)
+{
+    printk("chrdevbase_write\n");
+    return 0;
+}
+
+struct file_operations chrdevbase_fops = {
+    .owner = THIS_MODULE,
+    .open = chrdevbase_open,
+    .release = chrdevbase_release,
+    .read = chrdevbase_read,
+    .write = chrdevbase_write,
+};
+
+static int __init chrdevbase_init(void)
+{
+    int ret = 0;
+    printk("chrdevbase_init\n");
+    ret = register_chrdev(CHRDEVBASE_MAJOR,CHRDEVBASE_NAME,
+                  &chrdevbase_fops);
+
+    if(ret < 0){
+        printk("chrdevbase init failed\n");
+    }
+    return 0;
+}
+
+static void __exit chrdevbase_exit(void)
+{
+    printk("chrdevbase_exit\n");
+    unregister_chrdev(CHRDEVBASE_MAJOR,CHRDEVBASE_NAME);
+}
+
+/**
+ * 模块入口与出口
+*/
+module_init(chrdevbase_init);
+module_exit(chrdevbase_exit);
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("bcl");
+
+```
+
+### 编写和编译驱动程序
+
+##### 编写驱动程序
+
+驱动给应用传递数据的时候需要用到copy_to_user函数（read中），内核空间数据到用户空间的复制。
+
+应用给驱动传递数据的时候需要用到copy_from_user函数（write中），用户空间数据到内核空间的复制。
+
+**unsigned long copy_from_user(void \*to, const void \*from, unsigned long n);**
+to:目标地址（内核空间）
+from:源地址（用户空间）
+n:将要拷贝数据的字节数
+返回：成功返回0，失败返回没有拷贝成功的数据字节数
+
+**unsigned long copy_to_user(void \*to, const void \*from, unsigned long n)**
+to:目标地址（用户空间）
+from:源地址（内核空间）
+n:将要拷贝数据的字节数
+返回：成功返回0，失败返回没有拷贝成功的数据字节数
+
+```c
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+
+#define CHRDEVBASE_MAJOR    200               //主设备号
+#define CHRDEVBASE_NAME     "chrdevbase"    //设备名
+
+static char readBuf[100];   /* 读缓冲 */
+static char writeBuf[100];  /* 写缓冲 */
+static char kernelData[] = {"kernel data!\n"};
+
+static int chrdevbase_open(struct inode *inode,struct file *filp)
+{
+    printk("chrdevbase_open\n");
+    return 0;
+}
+
+static int chrdevbase_release(struct inode *inode,struct file *file)
+{
+    printk("chrdevbase_release\n");
+    return 0;
+}
+
+static ssize_t chrdevbase_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
+{
+    int ret = 0;
+
+    printk("chrdevbase_read\n");
+    memcpy(readBuf,kernelData,sizeof(kernelData));
+    ret = copy_to_user(buf,readBuf,count);  //内核空间数据到用户空间的复制
+    if(ret != 0){
+        printk("copy_to_user failed\n");
+    }
+    return ret;
+}
+
+static ssize_t chrdevbase_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos)
+{
+    int ret = 0;
+
+    printk("chrdevbase_write\n");
+    ret = copy_from_user(writeBuf,buf,count);   //用户空间数据到内核空间的复制
+    if(!ret){
+        printk("kernel recevdata:%s\n",writeBuf);
+    }else{
+        printk("copy_from_user failed\n");
+    }
+    return ret;
+}
+
+struct file_operations chrdevbase_fops = {
+    .owner = THIS_MODULE,
+    .open = chrdevbase_open,
+    .release = chrdevbase_release,
+    .read = chrdevbase_read,
+    .write = chrdevbase_write,
+};
+
+static int __init chrdevbase_init(void)
+{
+    int ret = 0;
+    printk("chrdevbase_init\n");
+    ret = register_chrdev(CHRDEVBASE_MAJOR,CHRDEVBASE_NAME,
+                  &chrdevbase_fops);
+
+    if(ret < 0){
+        printk("chrdevbase init failed\n");
+    }
+    return 0;
+}
+
+static void __exit chrdevbase_exit(void)
+{
+    printk("chrdevbase_exit\n");
+    unregister_chrdev(CHRDEVBASE_MAJOR,CHRDEVBASE_NAME);
+}
+
+/**
+ * 模块入口与出口
+*/
+module_init(chrdevbase_init);
+module_exit(chrdevbase_exit);
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("bcl");
+```
 
 ##### 编译驱动程序
 
@@ -1825,6 +2010,1235 @@ obj-m 表示将 chrdevbase.c 这个文件编译为 chrdevbase.ko 模块
 
 使用make命令进行编译
 
-##### 编译测试 APP
+### 编写和编译测试APP
 
-arm-linux-gnueabihf-gcc chrdevbaseApp.c -o chrdevbaseApp
+##### 编写APP程序
+
+```c
+#include <fcntl.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+
+/**
+ * ./chrdevbaseAPP <filename> <1:2> 1表示读，2表示写
+ * ./chrdevbaseAPP /dev/chrdevbase 1 表示从驱动里面读数据
+ * ./chrdevbaseAPP /dev/chrdevbase 2 表示从驱动里面写数据
+*/
+int main(int argc,char *argv[])
+{
+    int fd;
+    int ret;
+    char *filename;
+    char readBuf[100],writeBuf[100];
+    static char usrdata[] = {"usr data!\n"};
+
+    filename = argv[1];
+
+    if(argc != 3){
+        printf("Error usage!\n");
+        return -1;
+    }
+
+    /* open */
+    fd = open(filename,O_RDWR);
+    if(fd < 0){
+        perror("open");
+        return -1;
+    }
+
+    /* read */
+    if(atoi(argv[2]) == 1)
+    {
+        ret = read(fd,readBuf,100);
+        if(ret < 0){
+            perror("read");
+            return -1;
+        }
+        else{
+            printf("APP read data:%s",readBuf);
+        }
+    }
+
+    /* write */
+    if(atoi(argv[2]) == 2)
+    {
+        memcpy(writeBuf,usrdata,sizeof(usrdata));   //拷贝usrdata数据
+        ret = write(fd,writeBuf,100);
+        if(ret < 0){
+            perror("write");
+            return -1;
+        }
+    }
+
+    /* close */
+    ret = close(fd);
+    if(ret < 0){
+        perror("close");
+        return -1;
+    }
+
+    return 0;
+}
+```
+
+##### 编译APP程序
+
+交叉编译 `arm-linux-gnueabihf-gcc chrdevbaseApp.c -o chrdevbaseApp`
+
+### 测试
+
+1. 装载驱动.ko `modprobe chrdevbase.ko`
+2. 进入/dev查看设备文件，但是实际没有/dev/chrdevbase。我们需要创建设备节点 `mknod /dev/chrdevbase c 200 0`。“c”表示这是个 字符设备，“200”是设备的主设备号，“0”是设备的次设备号。
+3. 测试 `./chrdevbaseAPP /dev/chrdevbaseApp`
+
+实现效果就是
+
+```shell
+/lib/modules/4.1.15 # ./chrdevbaseAPP /dev/chrdevbase
+chrdevbase_open
+chrdevbase_read
+chrdevbase_write
+chrdevbase_release
+```
+
+```shell
+/lib/modules/4.1.15 # ./chrdevbaseAPP /dev/chrdevbase 1
+chrdevbase_open
+chrdevbase_read
+APP read data:kernel data!chrdevbase_release
+
+/lib/modules/4.1.15 # ./chrdevbaseAPP /dev/chrdevbase 2
+chrdevbase_open
+chrdevbase_write
+kernel recevdata:usr data!
+
+chrdevbase_release
+```
+
+## LED驱动实验（直接操作寄存器）
+
+### 地址映射
+
+MMU 全称叫做 Memory  Manage Unit，也就是内存管理单元。
+
+1. 完成虚拟空间到物理空间的映射。
+
+2. 内存保护，设置存储器的访问权限，设置虚拟存储空间的缓冲特性。
+
+开发板物理内存只有 512MB，映射到整个 4GB 的虚拟空间
+
+**ioremap 函数**
+
+定义 在 arch/arm/include/asm/io.h 文件中
+
+```c
+#define ioremap(cookie,size)		__arm_ioremap((cookie), (size), MT_DEVICE)
+void __iomem *__arm_ioremap(phys_addr_t phys_addr, size_t size,
+			    unsigned int mtype)
+{
+	return (void __iomem *)phys_addr;
+}
+```
+
+**iounmap 函数**
+
+```c
+#define iounmap				__arm_iounmap
+void __arm_iounmap(volatile void __iomem *addr)
+{
+}
+```
+
+### I/O内存访问函数
+
+```c
+//读操作函数，分别对应8bit、16bit 和 32bit
+u8 readb(const volatile void __iomem *addr)
+u16 readw(const volatile void __iomem *addr)
+u32 readl(const volatile void __iomem *addr)
+    
+//写操作函数，分别对应8bit、16bit 和 32bit
+void writeb(u8 value, volatile void __iomem *addr)
+void writew(u16 value, volatile void __iomem *addr)
+void writel(u32 value, volatile void __iomem *addr)
+```
+
+### 编写和编译驱动程序
+
+```c
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/io.h>
+
+#define LED_MAJOR   200
+#define LED_NAME    "led"
+
+/* 寄存器物理地址 */
+#define CCM_CCGR1_BASE              (0X020C406C)
+#define SW_MUX_GPIO1_IO03_BASE      (0X020E0068)
+#define SW_PAD_GPIO1_IO03_BASE      (0X020E02F4)
+#define GPIO1_DR_BASE               (0X0209C000)
+#define GPIO1_GDIR_BASE             (0X0209C004)
+
+/* 虚拟地址 */
+static void __iomem *IMX6ULL_CCM_CCGR1;
+static void __iomem *SW_MUX_GPIO1_IO03;
+static void __iomem *SW_PAD_GPIO1_IO03;
+static void __iomem *GPIO1_DR;
+static void __iomem *GPIO1_GDIR;
+
+#define LEDOFF 0 /* 关闭 */
+#define LEDON  1 /* 开启 */
+
+static void led_switch(u8 sta)
+{
+    u32 val = 0;
+
+    if(sta == LEDON){
+        val = readl(GPIO1_DR);
+        val &= ~(1 << 3);  //bit3置0，点亮LED
+        writel(val,GPIO1_DR);  
+    }else{
+        val = readl(GPIO1_DR);
+        val |= (1 << 3);  //bit3置1，熄灭LED
+        writel(val,GPIO1_DR);  
+    }
+}
+
+static int led_open(struct inode *inode, struct file *filp)
+{
+    return 0;
+}
+
+static int led_close(struct inode *inode, struct file *filp)
+{
+    return 0;
+}
+
+static ssize_t led_write(struct file *filp, const char __user *buf,
+			 size_t count, loff_t *ppos)
+{
+    u32 ret;
+    u8 dataBuf[1];
+
+    ret = copy_from_user(dataBuf,buf,count);
+    if(ret != 0){
+        printk("kernel write failed\n");
+        return -EFAULT;
+    }
+
+    //根据dataBuf判断开灯还是关灯
+    led_switch(dataBuf[0]);
+    
+    return 0;
+}
+
+static const struct file_operations led_fops = {
+    .owner   = THIS_MODULE,
+    .open    = led_open,
+    .release = led_close,
+    .write   = led_write,
+};
+
+/* 入口 */
+static int __init led_init(void)
+{
+    u32 ret = 0;
+    u32 val = 0;
+
+    /* 初始化LED灯、地址映射、32位是4个字节 */
+    IMX6ULL_CCM_CCGR1 = ioremap(CCM_CCGR1_BASE,4);
+    SW_MUX_GPIO1_IO03 = ioremap(SW_MUX_GPIO1_IO03_BASE,4);
+    SW_PAD_GPIO1_IO03 = ioremap(SW_PAD_GPIO1_IO03_BASE,4);
+    GPIO1_DR = ioremap(GPIO1_DR_BASE,4);
+    GPIO1_GDIR = ioremap(GPIO1_GDIR_BASE,4);
+
+    /* 初始化时钟 */
+    val = readl(IMX6ULL_CCM_CCGR1);
+    val &= ~(3 << 26);  //先清除bit26、27位
+    val |= (3 << 27);   //bit26、27位置1
+    writel(val,IMX6ULL_CCM_CCGR1);
+
+    writel(0x5,SW_MUX_GPIO1_IO03);  //设置复用
+    writel(0x10b0,SW_PAD_GPIO1_IO03); //设置电气属性
+
+    val = readl(GPIO1_GDIR);
+    val |= 1 << 3;  //bit3置1，设置为输出
+    writel(val,GPIO1_GDIR);
+
+    val = readl(GPIO1_DR);
+    val &= ~(1 << 3);  //bit3置0，点亮LED
+    writel(val,GPIO1_DR);
+
+    /* 注册字符设备 */
+    ret = register_chrdev(LED_MAJOR,LED_NAME,&led_fops);
+    if(ret < 0)
+    {
+        printk("register_chrdev failed!\n");
+        return -EIO;
+    }
+
+    printk("led_init\n");
+    return 0;
+}
+
+/* 出口 */
+static void __exit led_exit(void)
+{
+    /* 取消地址映射 */
+    iounmap(IMX6ULL_CCM_CCGR1);
+    iounmap(SW_MUX_GPIO1_IO03);
+    iounmap(SW_PAD_GPIO1_IO03);
+    iounmap(GPIO1_DR);
+    iounmap(GPIO1_GDIR);
+
+    /* 注销字符设备 */
+    unregister_chrdev(LED_MAJOR,LED_NAME);
+    printk("led_exit\n");
+}
+
+/* 注册驱动加载和卸载 */
+module_init(led_init);
+module_exit(led_exit);
+
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("bcl");
+```
+
+### 编写和编译应用程序
+
+```c
+#include <fcntl.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+
+/**
+ * ./ledAPP <filename> <0:1> 0表示关灯，1表示开灯
+ * ./ledAPP /dev/ledAPP 0 关灯
+ * ./ledAPP /dev/ledAPP 1 开灯
+*/
+
+#define LEDOFF 0 /* 关闭 */
+#define LEDON  1 /* 开启 */
+
+int main(int argc,char *argv[])
+{
+    int fd;
+    int ret;
+    int *ledStatus;
+    char *filename;
+
+    /* 参数数量检测 */
+    if (argc != 3)
+    {
+        printf("Error usage\n");
+        return -1;
+    }
+
+    filename = argv[1];
+
+    /* 打开文件 */
+    fd = open(filename,O_RDWR);
+    if(fd < 0){
+        perror("open");
+        return -1;
+    }
+
+    /* 写入led状态 */
+    *ledStatus = atoi(argv[2]);
+    ret = write(fd,ledStatus,1);
+    if(ret < 0){
+        perror("write");
+        close(fd);
+        return -1;
+    }
+
+    /* 关闭文件 */
+    ret = close(fd);
+    if(ret){
+        perror("read");
+        return -1;
+    }
+    
+    return 0;
+}
+```
+
+## 新字符设备驱动实验
+
+老的API为register_chrdev，驱动模块加载成功以后还需要手动使用 mknod 命令创建设备节点。
+
+现在字符设备使用新的驱动API函数。
+
+### 分配和释放设备号
+
+```c
+//没有指定设备号的话就使用如下函数来申请设备号
+int alloc_chrdev_region(dev_t *dev, unsigned baseminor, unsigned count, const char *name)
+    
+//给定了设备的主设备号和次设备号就使用如下所示函数来注册设备号即可
+//参数 from 是要申请的起始设备号，也就是给定的设备号；参数 count 是要申请的数量，一般都是一个；参数 name 是设备名字。
+int register_chrdev_region(dev_t from, unsigned count, const char *name)
+
+//统一使用如下释放函数
+void unregister_chrdev_region(dev_t from, unsigned count)
+```
+
+```c
+//示例代码
+int major; /* 主设备号 */
+int minor; /* 次设备号 */
+dev_t devid; /* 设备号 */ 
+
+if (major) { /* 定义了主设备号 */
+	devid = MKDEV(major, 0); /* 大部分驱动次设备号都选择 0*/
+	register_chrdev_region(devid, 1, "test");
+} else { /* 没有定义设备号 */
+	alloc_chrdev_region(&devid, 0, 1, "test"); /* 申请设备号 */
+	major = MAJOR(devid); /* 获取分配号的主设备号 */
+	minor = MINOR(devid); /* 获取分配号的次设备号 */
+}
+```
+
+### **新的字符设备注册方法**
+
+#### 字符设备结构
+
+在 Linux 中使用 cdev 结构体表示一个字符设备，cdev 结构体在 include/linux/cdev.h 文件中
+
+```c
+struct cdev {
+	struct kobject kobj;
+	struct module *owner;
+	const struct file_operations *ops;
+	struct list_head list;
+	dev_t dev;
+	unsigned int count;
+};
+```
+
+#### cdev_init 函数
+
+void cdev_init(struct cdev *cdev, const struct file_operations *fops)
+
+参数 cdev 就是要初始化的 cdev 结构体变量，参数 fops 就是字符设备文件操作函数集合。
+
+#### cdev_add 函数
+
+int cdev_add(struct cdev *p, dev_t dev, unsigned count)
+
+参数 p 指向要添加的字符设备(cdev 结构体变量)，参数 dev 就是设备所使用的设备号，参数 count 是要添加的设备数量。
+
+#### cdev_del 函数
+
+void cdev_del(struct cdev *p)
+
+参数 p 就是要删除的字符设备。
+
+cdev_del 和 unregister_chrdev_region 这两个函数合起来的功能相当于 unregister_chrdev 函数。
+
+### 自动创建设备节点
+
+udev 是一个用户程序，在 Linux 下通过 udev 来实现设备文件的创建与删除，busybox 会创建一个 udev 的简化版本—mdev，所以在嵌入式 Linux 中我们使用mdev 来实现设备节点文件的自动创建与删除，Linux 系统中的热插拔事件也由 mdev 管理。
+
+#### 创建和删除类
+
+```c
+//创建
+#define class_create(owner, name)		\
+({						\
+	static struct lock_class_key __key;	\
+	__class_create(owner, name, &__key);	\
+})
+struct class *__class_create(struct module *owner, const char *name,
+			     struct lock_class_key *key)
+
+//删除
+void class_destroy(struct class *cls);
+```
+
+#### 创建设备
+
+```c
+struct device *device_create(struct class *cls, struct device *parent,
+			     dev_t devt, void *drvdata,
+			     const char *fmt, ...);
+
+void device_destroy(struct class *class, dev_t devt)
+```
+
+device_create 是个可变参数函数，参数 class 就是设备要创建哪个类下面；参数 parent 是父设备，一般为 NULL，也就是没有父设备；参数 devt 是设备号；参数 drvdata 是设备可能会使用 的一些数据，一般为 NULL；参数 fmt 是设备名字，如果设置 fmt=xxx 的话，就会生成/dev/xxx 这个设备文件。返回值就是创建好的设备。
+
+参数 class 是要删除的设备所处的类，参数 devt 是要删除的设备号。
+
+### 设置文件私有数据
+
+首先设备所有属性都设置为结构体，编写驱动 open 函数的时候将设备结构体作为私有数据添加到设备文件中。在 open 函数里面设置好私有数据以后，在 write、read、close 等函数中直接读取 private_data 即可得到设备结构体。
+
+```c
+struct test_dev testdev;
+
+/* open 函数 */
+static int test_open(struct inode *inode, struct file *filp)
+{
+	filp->private_data = &testdev; /* 设置私有数据 */
+	return 0;
+}
+
+static ssize_t newchrled_write(struct file *filp, const char __user *buf,
+			 size_t count, loff_t *ppos)
+{
+    struct test_dev *dev = (struct test_dev)filp->private_data;
+}
+```
+
+### goto的对错误的用法
+
+goto在内核和驱动中一般用于对错误的处理。最先出错的地方，goto指向的处理语句放在最下面。以保证后续错误可以将前面所做的操作进行反向还原。
+
+### 编写和编译驱动程序
+
+```c
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/io.h>
+#include <linux/cdev.h>
+#include <linux/device.h>
+
+#define NEWCHRLED_NAME "newchrled"
+
+/* 寄存器物理地址 */
+#define CCM_CCGR1_BASE              (0X020C406C)
+#define SW_MUX_GPIO1_IO03_BASE      (0X020E0068)
+#define SW_PAD_GPIO1_IO03_BASE      (0X020E02F4)
+#define GPIO1_DR_BASE               (0X0209C000)
+#define GPIO1_GDIR_BASE             (0X0209C004)
+
+/* 虚拟地址 */
+static void __iomem *IMX6ULL_CCM_CCGR1;
+static void __iomem *SW_MUX_GPIO1_IO03;
+static void __iomem *SW_PAD_GPIO1_IO03;
+static void __iomem *GPIO1_DR;
+static void __iomem *GPIO1_GDIR;
+
+#define LEDOFF 0 /* 关闭 */
+#define LEDON  1 /* 开启 */
+
+/* LED设备结构体 */
+struct newchrled_dev{
+    struct cdev cdev;       /* 字符设备 */
+    dev_t devid;            /* 设备号 */
+    struct class *class;    /* 类 */
+    struct device *device;  /* 设备 */
+    int major;              /* 主设备号 */
+    int minor;              /* 次设备号 */
+};
+
+struct newchrled_dev newchrled; /* led设备 */
+
+static void led_switch(u8 sta)
+{
+    u32 val = 0;
+
+    if(sta == LEDON){
+        val = readl(GPIO1_DR);
+        val &= ~(1 << 3);  //bit3置0，点亮LED
+        writel(val,GPIO1_DR);  
+    }else{
+        val = readl(GPIO1_DR);
+        val |= (1 << 3);  //bit3置1，熄灭LED
+        writel(val,GPIO1_DR);  
+    }
+}
+
+static int newchrled_open(struct inode *inode, struct file *filp)
+{
+    return 0;
+}
+
+static int newchrled_close(struct inode *inode, struct file *filp)
+{
+    return 0;
+}
+
+static ssize_t newchrled_write(struct file *filp, const char __user *buf,
+			 size_t count, loff_t *ppos)
+{
+    u32 ret;
+    u8 dataBuf[1];
+
+    ret = copy_from_user(dataBuf,buf,count);
+    if(ret != 0){
+        printk("kernel write failed\n");
+        return -EFAULT;
+    }
+
+    //根据dataBuf判断开灯还是关灯
+    led_switch(dataBuf[0]);
+    
+    return 0;
+}
+
+/* 设备操作函数 */
+static const struct file_operations newchrled_fops = {
+    .owner   = THIS_MODULE,
+    .open    = newchrled_open,
+    .release = newchrled_close,
+    .write   = newchrled_write,
+};
+
+/* 入口函数 */
+static int __init newchrled_init(void)
+{
+    int ret = 0;
+    u32 val = 0;
+
+    printk("newchrled_init\n");
+
+    /* 初始化LED灯、地址映射、32位是4个字节 */
+    IMX6ULL_CCM_CCGR1 = ioremap(CCM_CCGR1_BASE,4);
+    SW_MUX_GPIO1_IO03 = ioremap(SW_MUX_GPIO1_IO03_BASE,4);
+    SW_PAD_GPIO1_IO03 = ioremap(SW_PAD_GPIO1_IO03_BASE,4);
+    GPIO1_DR = ioremap(GPIO1_DR_BASE,4);
+    GPIO1_GDIR = ioremap(GPIO1_GDIR_BASE,4);
+
+    /* 初始化时钟 */
+    val = readl(IMX6ULL_CCM_CCGR1);
+    val &= ~(3 << 26);  //先清除bit26、27位
+    val |= (3 << 27);   //bit26、27位置1
+    writel(val,IMX6ULL_CCM_CCGR1);
+
+    writel(0x5,SW_MUX_GPIO1_IO03);  //设置复用
+    writel(0x10b0,SW_PAD_GPIO1_IO03); //设置电气属性
+
+    val = readl(GPIO1_GDIR);
+    val |= 1 << 3;  //bit3置1，设置为输出
+    writel(val,GPIO1_GDIR);
+
+    val = readl(GPIO1_DR);
+    val &= ~(1 << 3);  //bit3置0，点亮LED
+    writel(val,GPIO1_DR);
+
+    /* 申请设备号 */
+    if(newchrled.major)
+    {
+        newchrled.devid = MKDEV(newchrled.major,0);
+        ret = register_chrdev_region(newchrled.devid,1,NEWCHRLED_NAME);
+    }else{
+        ret = alloc_chrdev_region(&newchrled.devid,0,1,NEWCHRLED_NAME);
+        newchrled.major = MAJOR(newchrled.devid);
+        newchrled.minor = MINOR(newchrled.devid);
+    }
+
+    if(ret < 0){
+        printk("newchrled chrdev_region err!\n");
+        goto fail_devid;
+    }
+
+    printk("newchrled major = %d,minor = %d\n",newchrled.major,newchrled.minor);
+    
+    /* 注册字符设备 */
+    newchrled.cdev.owner = THIS_MODULE;
+    cdev_init(&newchrled.cdev,&newchrled_fops);
+    ret = cdev_add(&newchrled.cdev, newchrled.devid, 1);
+    if(ret < 0)
+        goto fail_cdev;
+
+    /* 自动添加设备节点 */
+    /* 添加类 */
+    newchrled.class = class_create(THIS_MODULE,NEWCHRLED_NAME);
+    if(IS_ERR(newchrled.class)){
+        ret = PTR_ERR(newchrled.class);
+        goto fail_class;
+    }
+
+    /* 添加设备 */
+    newchrled.device =  device_create(newchrled.class, NULL,
+			     newchrled.devid, NULL,
+			     NEWCHRLED_NAME);
+    if(IS_ERR(newchrled.device)){
+        ret = PTR_ERR(newchrled.device);
+        goto fail_device;
+    }
+
+    return 0;
+
+fail_device:
+    device_destroy(newchrled.class,newchrled.devid);
+fail_class:
+    class_destroy(newchrled.class);
+fail_cdev:
+    unregister_chrdev_region(newchrled.devid,1);
+fail_devid:
+    return ret;
+}
+
+/* 出口函数 */
+static void __exit newchrled_exit(void)
+{
+    printk("newchrled_exit\n");
+
+    /* 取消地址映射 */
+    iounmap(IMX6ULL_CCM_CCGR1);
+    iounmap(SW_MUX_GPIO1_IO03);
+    iounmap(SW_PAD_GPIO1_IO03);
+    iounmap(GPIO1_DR);
+    iounmap(GPIO1_GDIR);
+
+    /* 删除字符设备 */
+    cdev_del(&newchrled.cdev);
+
+    /* 注销设备号 */
+    unregister_chrdev_region(newchrled.devid,1);
+
+    /* 摧毁设备 */
+    device_destroy(newchrled.class,newchrled.devid);
+
+    /* 摧毁类 */
+    class_destroy(newchrled.class);
+}
+
+/* 注册和卸载驱动 */
+module_init(newchrled_init);
+module_exit(newchrled_exit);
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("bcl");
+```
+
+## Linux设备树
+
+### 什么是设备树？
+
+[一文搞定 Linux 设备树 - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/425420889)
+
+设备树(Device Tree)，将这个词分开就是“设备”和“树”，描述设备树的文件叫做 DTS(Device  Tree Source)，这个 DTS 文件采用树形结构描述板级设备，也就是开发板上的设备信息。
+
+### DTS、DTB 和 DTC
+
+设备树源文件扩展名为.dts。DTS 是设备树源码文件，DTB 是将 DTS 编译以后得到的二进制文件。
+
+DTC 工具将.dts 编译为.dtb。DTC 工具源码在 Linux 内核的 scripts/dtc 目录下
+
+如果只是编译设备树的话建议使用“make dtbs”命令。
+
+编译指定的dtb使用“make xxxx.dtb”命令。
+
+### DTS 语法
+
+[[DTS\]设备树语法_dts设备树语法_曼巴精神传承人的博客-CSDN博客](https://blog.csdn.net/u012041204/article/details/88382686)
+
+[42.设备树---DTS的语法_dts语法_凌琳天上的博客-CSDN博客](https://blog.csdn.net/LingLinTianShang/article/details/122759842)
+
+设备树都是小写字符。
+
+**label: node-name@unit-address**
+
+unit-address一般都是外设寄存器的起始地址，或者是类似I2C设备地址
+
+label为节点标签，引入 label 的目的就是为了方便访问节点，可以直接通过&label 来访问这个节点
+
+#### .dtsi **头文件**
+
+和 C 语言一样，设备树也支持头文件，设备树的头文件扩展名为.dtsi。
+
+```
+#include <dt-bindings/input/input.h>
+#include "imx6ull.dtsi"
+```
+
+“#include”来引用.h、.dtsi 和.dts 文件。.dtsi一般都是芯片共有的信息。
+
+#### 设备节点
+
+1. “/”是根节点，每个设备树文件只有一个根节点。
+
+2. 从/根节点开始描述设备信息
+
+3. 在/根节点外有一些&cpu0这样的语句是“追加”
+
+### 设备树在系统中的体现
+
+系统启动后在根文件系统中可以看到设备树的节点信息。在/proc/device-tree目录下。节点类似于文件夹。
+
+### 标准属性
+
+#### compatible 属性
+
+"manufacturer,model"其中 manufacturer 表示厂商，model 一般是模块对应的驱动名字。
+
+根节点下的compatible属性用于检查内核是否支持该芯片启动。
+
+#### model 属性
+
+一般 model 属性描述设备模块信息，比如名字什么的。
+
+#### status 属性
+
+“okay” 表明设备是可操作的。
+
+“disabled”表明设备当前是不可操作的，但是在未来可以变为可操作的，比如热插拔设备插入以后。至于 disabled 的具体含义还要看设备的绑定文档。
+
+#### \#address-cells 和#size-cells 属性
+
+\#address-cells 和#size-cells 表明了子节点应该如何编写 reg 属性值
+
+reg = <address1 length1 address2 length2 address3 length3……>
+
+#### ranges 属性
+
+ranges属性值可以为空或者按照(child-bus-address,parent-bus-address,length)格式编写的数字矩阵，ranges 是一个地址映射/转换表。
+
+### 特殊节点
+
+在根节点“/”中有两个特殊的子节点：aliases 和 chosen。
+
+单词 aliases 的意思是“别名”，因此 aliases 节点的主要功能就是定义别名，定义别名的目 的就是为了方便访问节点。
+
+chosen 并不是一个真实的设备，chosen 节点主要是为了 uboot 向 Linux 内核传递数据，重点是 bootargs 参数。/proc/device-tree/chosen 目录里面会有bootargs属性。
+
+fdt_support.c 文件中有个 fdt_chosen 函数，uboot 中的 fdt_chosen 函数在设备树的 chosen 节点中加入了 bootargs 属性，并且还设置了 bootargs 属性值。
+
+### 绑定信息文档
+
+在 Linux 内核源码中有详细的.txt 文档描述了如何添加节点，这些.txt 文档叫做绑定文档，路径为：Linux 源码目录/Documentation/devicetree/bindings
+
+### Linux内核的OF函数
+
+Linux 内核给我们提供了一系列的函数来获取设备树中的节点或者属性信息，这一系列的函数都有一个统一的前缀“of_”，所以在很多资料里面也被叫做 OF 函数。这些 OF 函数原型都定义在 include/linux/of.h 文件中。
+
+kmalloc( ) 和 kfree( ) 都在linux/slab.h中。
+
+OF函数的使用
+
+```c
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/io.h>
+#include <linux/cdev.h>
+#include <linux/device.h>
+#include <linux/of.h>
+#include <linux/slab.h>
+
+/*
+	backlight {
+		compatible = "pwm-backlight";
+		pwms = <&pwm1 0 5000000>;
+		brightness-levels = <0 4 8 16 32 64 128 255>;
+		default-brightness-level = <6>;
+		status = "okay";
+	};
+*/
+
+/* 模块入口 */
+static int __init disof_init(void)
+{
+    int ret = 0;
+    struct device_node *bl_nd = NULL; /* 节点 */
+    struct property *comppro = NULL;
+    const char *str;
+    u32 def_value = 0;
+    u32 elemsize;
+    u32 *brival;
+    u8 i = 0;
+
+    printk("disof_init\n");
+
+    /* 找到backlight节点 路径是:/backlight */
+    bl_nd = of_find_node_by_path("/backlight");
+    if(bl_nd == NULL){
+        ret = -EINVAL;
+        goto fail_findnd;
+    }
+
+    /* 获取字符串属性 */
+    comppro = of_find_property(bl_nd,"compatible",NULL);
+    if(comppro == NULL){
+        ret = -EINVAL;
+        goto fail_findpro;
+    }else{
+        printk("compatible = %s\n",(char *)comppro->value);
+    }
+
+    ret = of_property_read_string(bl_nd,"status",&str);
+    if(ret < 0){
+        goto fail_rs;
+    }else{
+        printk("status = %s\n",str);
+    }
+
+    /* 获取数字属性 */
+    ret = of_property_read_u32(bl_nd,"default-brightness-level",&def_value);
+    if(ret < 0){
+        goto fail_read32;
+    }else{
+        printk("default-brightness-level = %d\n",def_value);
+    }
+
+    /* 获取数组属性 */
+    elemsize = of_property_count_elems_of_size(bl_nd,"brightness-levels",sizeof(u32));
+    if(elemsize < 0){
+        ret = -EINVAL;
+        goto fail_readele;
+    }else{
+        printk("brightness-levels elems size = %d\n",elemsize);
+    }
+
+    brival = kmalloc(elemsize*sizeof(u32),GFP_KERNEL);
+    if(!brival){
+        ret = -EINVAL;
+        goto fail_mem;
+    }
+
+    ret = of_property_read_u32_array(bl_nd,"brightness-levels",brival,elemsize);
+    if(ret < 0){
+        goto fail_read32array;
+    }else{
+        for(i = 0;i < elemsize;i++)
+            printk("brightness-levels[%d] = %d\n",i,*(brival+i));
+    }
+    kfree(brival);
+
+    return 0;
+
+fail_read32array:
+    kfree(brival);
+fail_mem:
+fail_readele:
+fail_read32:
+fail_rs:
+fail_findpro:
+fail_findnd:
+    return ret;
+}
+
+/* 模块出口 */
+static void __exit disof_exit(void)
+{
+    printk("disof_exit\n");
+    return;
+}
+
+/* 模块入口和出口 */
+module_init(disof_init);
+module_exit(disof_exit);
+
+/* 注册模块入口和出口 */
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("bcl");
+```
+
+## 设备树下的 LED 驱动实验
+
+①、在 imx6ull-alientek-emmc.dts 文件中创建相应的设备节点。
+
+②、编写驱动程序(在第四十二章实验基础上完成)，获取设备树中的相关属性值。
+
+③、使用获取到的有关属性值来初始化 LED 所使用的 GPIO。
+
+### 修改设备树文件
+
+```
+/* alphaled */
+alphaled {
+	#address-cells = <1>;
+	#size-cells = <1>;
+	compatible = "atkalpha-led";
+	status = "okay";
+	reg = < 0X020C406C 0X04	/* CCM_CCGR1_BASE */
+			0X020E0068 0X04	/* SW_MUX_GPIO1_IO03_BASE */
+			0X020E02F4 0X04	/* SW_PAD_GPIO1_IO03_BASE */
+			0X0209C000 0X04	/* GPIO1_DR_BASE */
+			0X0209C004 0X04	/* GPIO1_GDIR_BASE */
+	>;
+};
+```
+
+修改设备树后，如果make时出现FATAL: section header offset=11259024840327220 in file 'vmlinux' is bigger than filesize=14007747，则需要重新编译内核./imx6ull_alientek_emmc.sh。
+
+### 编写驱动程序
+
+of_iomap函数位于linux/of_address.h中。
+
+```c
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/io.h>
+#include <linux/cdev.h>
+#include <linux/device.h>
+#include <linux/of.h>
+#include <linux/of_address.h>
+
+#define DTSLED_CNT  1           /* 设备号个数 */
+#define DTSLED_NAME "dtsled"    /* 设备名字 */
+
+/* 虚拟地址 */
+static void __iomem *IMX6ULL_CCM_CCGR1;
+static void __iomem *SW_MUX_GPIO1_IO03;
+static void __iomem *SW_PAD_GPIO1_IO03;
+static void __iomem *GPIO1_DR;
+static void __iomem *GPIO1_GDIR;
+
+#define LEDOFF 0 /* 关闭 */
+#define LEDON  1 /* 开启 */
+
+/* led设备结构体 */
+struct dtsled_dev{
+    dev_t devid;            /* 设备号 */
+    int major;              /* 主设备号 */
+    int minor;              /* 次设备号 */
+    struct cdev cdev;       /* 设备结构体 */
+    struct class *class;    /* 类 */
+    struct device *device;  /* 设备 */
+    struct device_node *nd; /* 设备节点 */
+};
+
+struct dtsled_dev dtsled;   /* led设备 */
+
+static void led_switch(u8 sta)
+{
+    u32 val = 0;
+
+    if(sta == LEDON){
+        val = readl(GPIO1_DR);
+        val &= ~(1 << 3);  //bit3置0，点亮LED
+        writel(val,GPIO1_DR);  
+    }else{
+        val = readl(GPIO1_DR);
+        val |= (1 << 3);  //bit3置1，熄灭LED
+        writel(val,GPIO1_DR);  
+    }
+}
+
+static int dtsled_open(struct inode *inode, struct file *filp)
+{
+    filp->private_data = &dtsled;   //设置私有属性
+    return 0;
+}
+
+static int dtsled_close(struct inode *inode, struct file *filp)
+{
+    return 0;
+}
+
+static ssize_t dtsled_write(struct file *filp, const char __user *buf,
+			 size_t count, loff_t *ppos)
+{
+    u32 ret;
+    u8 dataBuf[1];
+
+    //struct dtsled_dev *dev = (struct dtsled_dev*)filp->private_data;
+
+    ret = copy_from_user(dataBuf,buf,count);
+    if(ret != 0){
+        printk("kernel write failed\n");
+        return -EFAULT;
+    }
+
+    //根据dataBuf判断开灯还是关灯
+    led_switch(dataBuf[0]);
+    
+    return 0;
+}
+
+/* 设备操作函数 */
+static const struct file_operations dtsled_fops = {
+    .owner   = THIS_MODULE,
+    .open    = dtsled_open,
+    .release = dtsled_close,
+    .write   = dtsled_write,
+};
+
+/* 入口 */
+static int __init dtsled_init(void)
+{
+    int ret = 0;
+    struct property *proper;
+    const char *str;
+    u32 regdata[14];
+    u32 val;
+
+    /* 注册字符设备 */
+    /* 1.申请设备号 */
+    dtsled.major = 0;   //由内核分配
+    if(dtsled.major){   //给定设备号
+        dtsled.devid = MKDEV(dtsled.major,0);
+        ret = register_chrdev_region(dtsled.devid,DTSLED_CNT,DTSLED_NAME);
+    }else{  //没有给定设备号
+        ret = alloc_chrdev_region(&dtsled.devid,0,DTSLED_CNT,DTSLED_NAME);
+        dtsled.major = MAJOR(dtsled.devid);
+        dtsled.minor = MINOR(dtsled.devid);
+    }
+    printk("dtsled major = %d,minor = %d\n",dtsled.major,dtsled.minor);
+    if(ret < 0){
+        goto fail_devid;
+    }
+
+    /* 2.添加字符设备 */
+    dtsled.cdev.owner = THIS_MODULE;
+    cdev_init(&dtsled.cdev,&dtsled_fops);
+    ret = cdev_add(&dtsled.cdev,dtsled.devid,DTSLED_CNT);
+    if(ret < 0){
+        goto fail_cdev;
+    }
+
+    /* 自动添加设备节点 */
+    /* 1.添加类 */
+    dtsled.class = class_create(THIS_MODULE,DTSLED_NAME);
+    if(IS_ERR(dtsled.class)){
+        ret = PTR_ERR(dtsled.class);
+        goto fail_class;
+    }
+    /* 2.添加设备 */
+    dtsled.device = device_create(dtsled.class,NULL,dtsled.devid,NULL,DTSLED_NAME);
+    if(IS_ERR(dtsled.device)){
+        ret = PTR_ERR(dtsled.device);
+        goto fail_device;
+    }
+
+    /* 获取设备树内容 */
+    /* 1.获取设备节点 */
+    dtsled.nd = of_find_node_by_path("/alphaled");
+    if(dtsled.nd == NULL){
+        ret = -EINVAL;
+        goto fail_findnd;
+    }
+
+    /* 2.获取compatible属性 */
+    proper = of_find_property(dtsled.nd,"compatible",NULL);
+    if(proper == NULL){
+        printk("compatible property find failed\r\n");
+        goto fail_rs;
+    }else{
+        printk("compatible = %s\n",(char *)proper->value);
+    }
+
+    /* 3.获取status属性 */
+    ret = of_property_read_string(dtsled.nd,"status",&str);
+    if(ret < 0){
+        printk("status read failed\n");
+        goto fail_rs;
+    }else{
+        printk("status = %s\n",str);
+    }
+
+    /* 4.获取reg属性 */
+    ret = of_property_read_u32_array(dtsled.nd,"reg",regdata,10);
+    if(ret < 0){
+        printk("reg property read failed\n");
+        goto fail_rs;
+    }else{
+        u8 i = 0;
+        printk("reg data:\n");
+        for(i = 0;i < 10;i++)
+            printk("%#X ",regdata[i]);
+        printk("\n");
+    }
+
+    /* 初始化LED灯、地址映射、32位是4个字节 */
+#if 0
+    IMX6ULL_CCM_CCGR1 = ioremap(regdata[0],regdata[1]);
+    SW_MUX_GPIO1_IO03 = ioremap(regdata[2],regdata[3]);
+    SW_PAD_GPIO1_IO03 = ioremap(regdata[4],regdata[5]);
+    GPIO1_DR = ioremap(regdata[6],regdata[7]);
+    GPIO1_GDIR = ioremap(regdata[8],regdata[9]);
+#else
+    IMX6ULL_CCM_CCGR1 = of_iomap(dtsled.nd,0);
+    SW_MUX_GPIO1_IO03 = of_iomap(dtsled.nd,1);
+    SW_PAD_GPIO1_IO03 = of_iomap(dtsled.nd,2);
+    GPIO1_DR = of_iomap(dtsled.nd,3);
+    GPIO1_GDIR = of_iomap(dtsled.nd,4);
+#endif
+
+    /* 使能 GPIO1 时钟 */
+    val = readl(IMX6ULL_CCM_CCGR1);
+    val &= ~(3 << 26);  //先清除bit26、27位
+    val |= (3 << 27);   //bit26、27位置1
+    writel(val,IMX6ULL_CCM_CCGR1);
+
+    /* 设置 GPIO1_IO03 的复用功能，最后设置 IO 属性 */
+    writel(0x5,SW_MUX_GPIO1_IO03);  //设置复用
+    writel(0x10b0,SW_PAD_GPIO1_IO03); //设置电气属性
+
+    /* 设置 GPIO1_IO03 为输出功能 */
+    val = readl(GPIO1_GDIR);
+    val |= 1 << 3;  //bit3置1，设置为输出
+    writel(val,GPIO1_GDIR);
+
+    /* 默认关闭 LED */
+    val = readl(GPIO1_DR);
+    val |= (1 << 3);  //bit3置1，默认熄灭LED
+    writel(val,GPIO1_DR);
+
+    return 0;
+
+fail_rs:
+
+fail_findnd:
+    device_destroy(dtsled.class,dtsled.devid);  //摧毁设备
+fail_device:
+    class_destroy(dtsled.class);    //摧毁类
+fail_class:
+    cdev_del(&dtsled.cdev); //删除cdev
+fail_cdev:
+    unregister_chrdev_region(dtsled.devid,DTSLED_CNT);
+fail_devid:
+    return ret;
+}
+
+/* 出口 */
+static void __exit dtsled_exit(void)
+{
+    /* 关闭LED */
+    led_switch(LEDOFF);
+
+    /* 取消地址映射 */
+    iounmap(IMX6ULL_CCM_CCGR1);
+    iounmap(SW_MUX_GPIO1_IO03);
+    iounmap(SW_PAD_GPIO1_IO03);
+    iounmap(GPIO1_DR);
+    iounmap(GPIO1_GDIR);
+
+    /* 注销字符设备驱动 */
+    cdev_del(&dtsled.cdev); //删除cdev
+    unregister_chrdev_region(dtsled.devid,DTSLED_CNT);  //注销设备号
+
+    device_destroy(dtsled.class,dtsled.devid);  //摧毁设备
+    class_destroy(dtsled.class);    //摧毁类
+
+    return;
+}
+
+/* 注册驱动和卸载驱动 */
+module_init(dtsled_init);
+module_exit(dtsled_exit);
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("bcl");
+```
+
+## pinctrl 和 gpio 子系统实验
+
+Linux 内核针对 PIN 的配置推出了 pinctrl 子系统，对于 GPIO 的配置推出了 gpio 子系统。借助 pinctrl 和 gpio 子系统来简化 GPIO 驱动开发。
+
+### pinctrl 子系统
+
+①、获取设备树中 pin 信息。
+
+②、根据获取到的 pin 信息来设置 pin 的复用功能。
+
+③、根据获取到的 pin 信息来设置 pin 的电气特性，比如上/下拉、速度、驱动能力等。

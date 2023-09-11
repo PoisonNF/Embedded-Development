@@ -1581,7 +1581,7 @@ void MainWindow::event_button(const QJoystickButtonEvent &event)
 
 # 相关案例
 
-## 案例一	滑块与选值框
+## 案例一 滑块与选值框
 
 创建应用程序，包含滑块（QSlider）和选值框（QSpinBox），通过信号和槽关联，保持同步运行
 
@@ -1609,7 +1609,7 @@ int main(int argc, char *argv[])
 }
 ```
 
-## 案例二	计算器
+## 案例二 计算器
 
 - 输入两个数字，按“=”按钮显示计算结果。
 - 只要两个数使合法数字时，“=”按钮才被激活，否则禁用
@@ -1741,7 +1741,7 @@ void Calculator::calcClinked(void)
 
 ```
 
-## 案例三	获取系统时间
+## 案例三 获取系统时间
 
 - 使用QT创建获取时间窗口
 
@@ -2400,7 +2400,7 @@ void StudentDialog::on_sortButton_clicked()
 
 ```
 
-## 案例八  QThread多线程
+## 案例八 QThread多线程
 
 - 点击开始按钮，在线程A中生成100000个随机数
 - 在线程B中对100000个数进行冒泡排序
@@ -2613,7 +2613,7 @@ void Generate::run()
 
 ```
 
-## 案例九  QObject多线程
+## 案例九 QObject多线程
 
 要求与案例八相同
 
