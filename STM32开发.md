@@ -148,7 +148,9 @@ Optimization level选择 `optimize most (-o3)`
             }
     ```
 
-    
+## STM32CubeMX
+
+    [【编辑器】STM32CubeMx生成的代码改为4空格制表符缩进_cubemx生成代码tab空格为4_菜老越的博客-CSDN博客](https://blog.csdn.net/spiremoon/article/details/111519064)
 
 ***
 # 常见问题
@@ -1309,3 +1311,188 @@ void PVD_Config(void)
  }
 ```
 
+# Bootloader
+
+## Flash分区
+
+既然我们写的程序都会变成二进制文件存放到Flash中, 那么我们就可以进一步对我们程序进行分区。
+
+F1系列以页为单位，而F4以扇区为单位，这点在分区和擦除的时候需要格外小心。
+
+![img](./STM32开发.assets/07b49a4d2c2c4855b0734d07c5bfc52e.jpg)
+
+<center><p>F1系列Flash128K分布图</p></center>
+
+![img](./STM32开发.assets/format,png.png)
+
+![img](./STM32开发.assets/format,png-1694571119379-5.png)
+
+<center><p>F4系列Flash分布图</p></center>
+
+我将它分为三个区.`BootLoader区`、 `App1区`、 `App2区(备份区)`具体划分如下图:
+
+- `BootLoader区`存放启动代码
+- `App1区`存放应用代码
+- `App2区`存放暂存的升级代码
+
+![img](./STM32开发.assets/16468d93acee410b882524aef3227852.jpg)
+
+## 总体流程图
+
+1. 先执行BootLoader程序, 先去检查APP2区有没有程序, 如果有就将App2区(备份区)的程序拷贝到App1区, 然后再跳转去执行App1的程序.
+2. 然后执行App1程序, 因为BootLoader和App1这两个程序的向量表不一样, 所以跳转到App1之后第一步是先去更改程序的向量表. 然后再去执行其他的应用程序.
+3. 在应用程序里面会加入程序升级的部分, 这部分主要工作是拿到升级程序, 然后将他们放到App2区(备份区), 以便下次启动的时候通过BootLoader更新App1的程序.
+
+流程图如下图所示:
+
+![img](./STM32开发.assets/66e1355f18e349069da43d2785c8237c.png)
+
+## BootLoader程序
+
+> BootLoader 可以理解成是引导程序, 它的作用是启动正式的App应用程序。 换言之, BootLoader是一个程序, App也是一个程序, BootLoader程序是用于启动App程序的。类似于Linux下的Uboot或者Windows下的BIOS
+
+将`App2区`的最后一个字节(`0x0801FFFC`)用来表示`App2区`是否有升级程序, STM32在擦除之后Flash的数据存放的都是`0xFFFFFFFF`, 如果有, 我们将这个地址存放`0xAAAAAAAA`。具体的流程图见下图所示
+
+![img](./STM32开发.assets/cb11b2d117c24605bd60ff29c9586262.jpg)
+
+当然也可以产生变种，加入按键控制，更加与Uboot相似。
+
+## APP程序
+
+- 先修改向量表, 因为本程序是由BootLoader跳转过来的, 不修改向量表后面会出现问题
+
+    重点：
+
+    - 在裸机中应当在mian()函数第一行加入SCB->VTOR = 0x8000000UL | 0x00005000UL;/* 更改中断向量表地址 */，根据实际情况更改，一般使用宏来指定地址
+    - 在RT-Thread中需要在rt_application_init前修改向量表
+    - SGA库中Drv_HAL_Init函数的第一行加入对向量表地址的更改，即可同时完成对裸机和RTOS的向量表更改
+
+- 打印版本信息, 方便查看不同的App版本
+
+- 本例程的升级程序采用串口的Ymoderm协议进行传输bin文件. 具体的流程图见下图所示
+
+![img](./STM32开发.assets/ff2b8b69cfcb448bad823febd6142fbe.jpg)
+
+## 如何使用keil生成bin文件
+
+![img](./STM32开发.assets/20200304164419584.png)
+
+完成前五步后，Run1中会显示fromelf.exe的路径，后面需要添加如下代码 `--bin --output 目的文件 源文件`
+
+`D:\Keil_v5\ARM\ARMCC\bin\fromelf.exe --bin --output .\STM32F103rb_App1\STM32F103rb_App1.bin .\STM32F103rb_App1\STM32F103rb_App1.axf`
+
+上面这个命令就是根据我的电脑keil路径生成的app.bin。注意要选对打包工具路径和.axf文件的路径，最后想好.bin文件要放在哪。
+
+同样可以用此方法生成STM32F103rb_bootloader.bin，可以查看bootloader的大小，以供给bootloader提供合适的分区大小。
+
+[如何利用Keil生成.bin文件_iot 小胡的博客-CSDN博客](https://blog.csdn.net/weixin_41294615/article/details/104656577)
+
+## BootLoader的下载
+
+![img](./STM32开发.assets/c2b7750448c547bf9aa688db97faf212.png)
+
+这里需要先通过生成bin文件查看bootloader的大小来决定分配给bootloader的大小。APP区也需要根据bootloader的大小进行调整。
+
+## App1的下载
+
+- App1稍微复杂一点, 需要将代码的起始位置设置为`0x08005000`（根据实际情况进行更改）
+- Size如果是VCT6可以选择0x3b000，当然这是将APP2部分也占了。偏移量必须是0x200的整数倍。
+- 同时也要修改擦除方式为`Erase Sectors`, 见下图
+
+![img](./STM32开发.assets/5f13b0c5d2634a4d9490d3e2095f60ef.png)
+
+![img](./STM32开发.assets/d4a1ba31431f4cf7a53b8abb5e6acfb6.png)
+
+## 使用Xshell进行文件传输
+
+串口1进行调试信息的打印, 串口2进行YModem升级
+
+在Xshell界面中右键传输，选择YModem协议传输，将.bin文件发送到板子上完成更新。
+
+如果一直卡在程序升级的地方，需要将整个flash重新烧写一次。
+
+## Ymodem协议
+
+Xmodem、Ymodem和Zmodem协议是最常用的三种通信协议。
+
+Xmodem协议是最早的，传输128字节信息块。
+
+Ymodem是Xmodem的改进版协议，具有传输快速稳定的优点。它可以一次传输1024字节的信息块，同时还支持传输多个文件。
+
+平常所说的Ymodem协议是指的Ymodem-1K，除此还有Ymodem-g（没有CRC校验，不常用）。
+
+YModem-1K用1024字节信息块传输取代标准的128字节传输，数据的发送回使用CRC校验，保证数据传输的正确性。它每传输一个信息块数据时，就会等待接收端回应ACK信号，接收到回应后，才会继续传输下一个信息块，保证数据已经全部接收。
+
+### 起始帧
+
+YModem的起始帧并不直接传输文件的数据，而是将文件名与文件的大小放在数据帧中传输，它的帧长=3字节数据首部+128字节数据+2字节CRC16校验码=133字节。它的数据结构如下：
+
+**SOH 00 FF  filename filezise NUL  CRCH CRCL**
+
+其中SOH=0x01，表示这个数据帧中包含着128个字节的数据（STX表示1024字节，初始帧只有128个），00表示数据帧序号，初始是0，依次向下排，FF是帧序号的取反。
+
+filename是要传输的文件名，如STM320x10000.bin，它在数据帧中的格式为十六进制，要在文件名后会存在一个00，表示文件名的结束；filesize表示文件的大小，如上面的STM320x10000.bin大小是21.6KB(22164字节)，它在数据帧中的格式也为十六进制，同样最后要加上00表示结束。
+
+NUL就是数据部分的128字节中除去文件名和文件大小占据的剩下的字节都用00填充，CRCH和CRCL分别表示16位CRC校验码的高8位与低8位。
+
+### 数据帧
+
+YModem的数据帧中会预留1024字节空间用来传输文件数据，它跟起始帧接收差不多，如下：
+
+**STX 01 FEdata[1024] CRCH CRCL**
+
+其中STX=0x02，表示这帧数据帧后面包含着1024字节的数据部分；01是表示帧序号，FE是它的取反，再下一帧数据就是02 FD，以此类推；data[1024]表示存放着1024字节的文件数据；CRCH与CRCL是CRC16检验码的高8位与低8位。
+
+如果文件数据的最后剩余的数据在128~1024之前，则还是使用STX的1024字节传输，但是剩余空间全部用0x1A填充，如下结构：
+
+STX 01 FE data[1024] 1A 1A……… CRCH CRCL
+
+有一种特殊的情况：如果文件大小小于等于128字节或者文件数据最后剩余的数据小于128字节，则YModem会选择SOH数据帧用128字节来传输数据，如果数据不满128字节，剩余的数据用0x1A填充这是数据帧的结构就变成了：
+
+文件大小小于128字节：               SOH 01 FE data[ ] 1A ...1A CRCH CRCL  
+
+文件最后剩余数据小于128字节：  SOH 01 FE data[ ] 1A...1A CRCH CRCL
+
+### 结束帧
+
+YModem的结束帧数据也采用SOH的128字节数据帧，它的结构如下：
+
+SOH 00 FF NUL[128] CRCH CRCL
+
+结束帧同样以SOH开头，表示后面跟着128字节大小的数据；结束帧的帧序也认为是00 FF；结束帧的128字节的数据部分不存放任何信息，即全部用00填充。
+
+特别注意的是，在文件传输结束时发送端发送了结束标识EOT之后待收到接收端的回复后，还会再发送一包空数据包以表示传输真正结束。
+
+EOT >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< NACK
+
+EOT>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ACK
+
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< C
+
+SOH 00 FF NUL[128] CRCCRC>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< ACK
+
+### 协议符号与数值
+
+![在这里插入图片描述](./STM32开发.assets/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2h1YW5nZGVuYW4=,size_16,color_FFFFFF,t_70.png)
+
+![在这里插入图片描述](./STM32开发.assets/20191219110657956.png)
+
+## 参考教程
+
+[STM32单片机bootloader扫盲_stm32 bootloader_不咸不要钱的博客-CSDN博客](https://blog.csdn.net/weixin_42378319/article/details/120896348)
+
+[ESA2GJK1DH1K升级篇: IAP详解 - 广源时代 - 博客园 (cnblogs.com)](https://www.cnblogs.com/yangfengwu/p/11639176.html)
+
+[STM32CubeMx开发之路—在线升级OTA_stm32ota升级例程_iot 小胡的博客-CSDN博客](https://blog.csdn.net/weixin_41294615/article/details/104669766?spm=1001.2014.3001.5502)
+
+[【STM32OTA】两节课4G模组升级STM32学不会直播吃......_哔哩哔哩_bilibili](https://www.bilibili.com/video/BV14K4y147x3/?spm_id_from=333.337.search-card.all.click&vd_source=6057f993f0b528310b130bbca1e824fa)
+
+[[笔记\]STM32基于HAL编写Bootloader+App程序结构_stm32 hal hid bootloarder_Unit丶的博客-CSDN博客](https://blog.csdn.net/qq_33591039/article/details/121562204)
+
+[STM32&4G模组实现OTA升级_stm32 ota升级 github_linggan17的博客-CSDN博客](https://blog.csdn.net/qq_42722691/article/details/113247862)
