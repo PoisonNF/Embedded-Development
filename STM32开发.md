@@ -1483,6 +1483,106 @@ SOH 00 FF NUL[128] CRCCRC>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 ![在这里插入图片描述](./STM32开发.assets/20191219110657956.png)
 
+## F4的注意事项
+
+F4以扇区Sector为单位，所以使用flash擦除函数的时候要格外小心，防止擦除其他分区。
+
+在程序中最需要注意的是在使用Flash_Erase_page()函数时，第二个参数需要减1，没有这个减1可能会擦除下一个分区。例如：Flash_Erase_page(des_addr, des_addr + Application_Size - 1);
+
+## F1与F4的代码差异
+
+F1与F4的代码主要区别在于flash的擦除，F1对页进行操作，F4对扇区进行操作。
+
+### F1擦除相关代码
+
+```c
+/**
+ * @brief flash擦除页
+ * @param pageaddr  起始地址	
+ * @param num       擦除的页数
+ * @return 0 成功 -1 失败
+ */
+static int Flash_Erase_Page(uint32_t pageaddr, uint32_t num)
+{
+	/* 解锁flash */
+	HAL_FLASH_Unlock();
+	
+	/* 擦除FLASH*/
+	FLASH_EraseInitTypeDef FlashSet;
+	FlashSet.TypeErase = FLASH_TYPEERASE_PAGES;
+	FlashSet.PageAddress = pageaddr;
+	FlashSet.NbPages = num;
+	
+	/*设置PageError，调用擦除函数*/
+	uint32_t PageError = 0;
+	HAL_FLASHEx_Erase(&FlashSet, &PageError);
+	
+	/* 锁定flash */
+	HAL_FLASH_Lock();
+	return 0;
+}
+```
+
+### F4擦除相关代码
+
+```c
+/**
+ * @brief 获取地址所在的sector
+ * @param address  起始地址	
+ * @return sector
+ */
+uint32_t Get_Sector(uint32_t address)
+{
+    uint32_t sector = 0;
+
+	(address <= 0x080FFFFF && address >= 0x080E0000)? sector = 11:
+	(address >= 0x080C0000)? sector = 10:
+	(address >= 0x080A0000)? sector = 9:
+	(address >= 0x08080000)? sector = 8:
+	(address >= 0x08060000)? sector = 7:
+	(address >= 0x08040000)? sector = 6:
+	(address >= 0x08020000)? sector = 5:
+	(address >= 0x08010000)? sector = 4:
+	(address >= 0x0800C000)? sector = 3:
+	(address >= 0x08008000)? sector = 2:
+	(address >= 0x08006000)? sector = 1:
+	(address >= 0x08004000)? sector = 1:0;
+	
+    return sector;
+}
+
+/**
+ * @brief flash擦除sector
+ * @param start_addr  起始地址	
+ * @param end_addr    结束地址
+ * @return 0 成功 -1 失败
+ */
+static int Flash_Erase_Sector(uint32_t start_addr, uint32_t end_addr)
+{
+	uint32_t UserStartSector;
+	uint32_t SectorError = 0;
+	FLASH_EraseInitTypeDef FlashSet;
+
+	/* 解锁flash */
+	HAL_FLASH_Unlock();
+	
+	/* 获取起始地址的扇区，擦除FLASH*/
+	UserStartSector = Get_Sector(start_addr);
+
+	FlashSet.TypeErase = TYPEERASE_SECTORS;
+	FlashSet.Sector = UserStartSector;
+	FlashSet.NbSectors = Get_Sector(end_addr) - UserStartSector + 1;
+	FlashSet.VoltageRange = VOLTAGE_RANGE_3;
+	
+	/*调用擦除函数*/
+	HAL_FLASHEx_Erase(&FlashSet, &SectorError);
+	
+	/* 锁定flash */
+	HAL_FLASH_Lock();
+	return 0;
+}
+```
+
 ## 参考教程
 
 [STM32单片机bootloader扫盲_stm32 bootloader_不咸不要钱的博客-CSDN博客](https://blog.csdn.net/weixin_42378319/article/details/120896348)
@@ -1496,3 +1596,695 @@ SOH 00 FF NUL[128] CRCCRC>>>>>>>>>>>>>>>>>>>>>>>>>>
 [[笔记\]STM32基于HAL编写Bootloader+App程序结构_stm32 hal hid bootloarder_Unit丶的博客-CSDN博客](https://blog.csdn.net/qq_33591039/article/details/121562204)
 
 [STM32&4G模组实现OTA升级_stm32 ota升级 github_linggan17的博客-CSDN博客](https://blog.csdn.net/qq_42722691/article/details/113247862)
+
+[【STM32】BootLoader介绍、编写 以及 OTA常见方案分析（差分升级 全量升级 AB面升级）_mcu的ab区升级_David 's blog的博客-CSDN博客](https://blog.csdn.net/zdavid_2018/article/details/109490846)
+
+# OTA
+## 阿里云操作
+
+### 设备秘钥认证上云
+
+#### 创建产品
+
+![image-20230919102950354](./STM32开发.assets/image-20230919102950354.png)
+
+#### 添加设备
+
+下一步添加设备，产品选择之前添加的产品“test” 
+
+“DeviceName”自定义填写，例“MQTTtest” 
+
+ “备注名称”自定义，例“设备秘钥认证测试”
+
+ 点击“确认”完成设置
+
+#### 设备配置
+
+打开设置软件: 
+
+(1) 打开串口
+
+(2) 点击“进入配置状态” 
+
+(3) 获取当前参数 
+
+(4) 设置工作模式为“MQTT 模式” 
+
+(5) MQTT 相关参数配置：
+
+- 连接方式：阿里云 
+
+- 地域信息：cn-shanghai 
+
+- 产品密钥：配置与阿里云的 ProductKey 配置一致
+
+- 设备秘钥：可从阿里云上查看 DeviceSecret
+
+- 设备名称：配置与阿里云上的 DeviceName
+
+- 设备 ID：自定义即可，填“123456” 
+
+其余参数保持出厂默认，下面的设备证书为三元组。
+
+![image-20230919103704574](./STM32开发.assets/image-20230919103704574.png)
+
+(6) 点击“设置并保存所有参数”，等待参数自动保存设备重启
+
+
+![image-20230919103825266](./STM32开发.assets/image-20230919103825266.png)
+
+#### 查看设备上云
+
+设备重启完成后，可以看到设备的 LINK1 指示灯亮起，且阿里云设备列表界面设备状态显示“在线”。
+
+![image-20230919104019683](./STM32开发.assets/image-20230919104019683.png)
+
+### 订阅与发布
+
+#### 阿里云配置
+
+在产品详情中可以自定义Topic
+
+![image-20230919104544542](./STM32开发.assets/image-20230919104544542.png)
+
+#### 设备配置
+
+阿里云中操作权限为“发布”的主题，填写到设备的“推送主题”配置中，操作权限为“订阅”的主题，填写到设备的“订阅主题” 配置中，$(deviceName)要替换成当前设备名称，本例中为“MQTTtest”
+
+![image-20230919105720508](./STM32开发.assets/image-20230919105720508.png)
+
+
+
+#### 透传模式
+
+配置 MQTTtest的“MQTT 串口传输模式设置”为“透传模式”时，串口发送和接收的数据仅消息体：
+
+服务器下发数据：
+
+![image-20230919105839910](./STM32开发.assets/image-20230919105839910.png)
+
+设备上报数据：（在监控运维的日志服务中查看）
+
+![image-20230919110154975](./STM32开发.assets/image-20230919110154975.png)
+
+#### 分发模式
+
+配置 MQTTtest的“MQTT 串口传输模式设置”为“分发模式”时，串口发送和接收的数据格式为：symbol,（symbol：主题 序号）：
+
+![image-20230919123922308](./STM32开发.assets/image-20230919123922308.png)
+
+## 实际流程
+
+![设备OTA升级](./STM32开发.assets/p249314.jpg)
+
+### 上报OTA当前版本
+
+（可选）设备连接OTA服务，上报版本号。
+
+设备端通过MQTT协议推送当前设备OTA模块版本号到Topic：` /ota/device/inform/${productKey}/${deviceName}`。消息格式如下：
+
+```json
+{
+    "id": "123",
+    "params": {
+        "version": "1.0.1",
+        "module": "MCU"
+    }
+}
+
+sprintf(temp,"{\"id\": \"1\",\"params\": {\"version\": \"%s\",\"module\": \"MCU\"}}",VERSION);
+```
+
+
+
+###　下发OTA升级包的URL给设备
+
+![image-20230921144442176](./STM32开发.assets/image-20230921144442176.png)
+
+![image-20230921144502051](./STM32开发.assets/image-20230921144502051.png)
+
+在控制台触发升级操作之后，设备会收到物联网平台OTA服务推送的升级包的URL地址。
+
+设备端订阅Topic：`/ota/device/upgrade/${productKey}/${deviceName}`。物联网平台对设备发起OTA升级请求后，设备端会通过该Topic收到升级包的存储地址URL。
+
+消息格式如下：
+
+- 升级包下载协议为HTTPS：
+
+    ```json
+    {
+        "id": "123",
+        "code": 200,
+        "data": {
+            "size": 93796291,
+            "sign": "f8d85b250d4d787a9f483d89a974***",
+            "version": "10.0.1.9.20171112.1432",
+            "isDiff": 1,
+            "url": "https://the_firmware_url",
+            "signMethod": "MD5",
+            "md5": "f8d85b250d4d787a9f48***",
+            "module": "MCU",
+            "extData":{
+                "key1":"value1",
+                "key2":"value2",
+                "_package_udi":"{\"ota_notice\":\"升级底层摄像头驱动，解决视频图像模糊的问题。\"}"
+            }
+        }
+    }
+    ```
+
+- 升级包下载协议为MQTT：
+
+    ```json
+    {
+        "id": "123",
+        "code": 200,
+        "data":{
+            "size":432945,
+            "digestsign":"A4WOP***SYHJ6DDDJD9***",
+            "version":"2.0.0",
+            "isDiff":1,
+            "signMethod":"MD5",
+            "dProtocol":"mqtt",
+            "streamId":1397345,
+            "streamFileId":1,
+            "md5":"93230c3bde***",
+            "sign":"93230c3bde42***",
+            "module":"MCU",
+            "extData":{
+                "key1":"value1",
+                "key2":"value2"
+            }
+        }
+    }
+    ```
+
+实际举例
+
+```json
+30 a0 02 00 28 2f 6f 74 61 2f 64 65 76 69 63 65 2f 75 70 67 72 61 64 65 2f 6b 30 38 6c 63 77 67 6d 30 54 73 2f 4d 51 54 54 74 65 73 74 7b 22 63 6f 64 65 22 3a 22 31 30 30 30 22 2c 22 64 61 74 61 22 3a 7b 22 73 69 7a 65 22 3a 34 32 35 32 2c 22 73 74 72 65 61 6d 49 64 22 3a 31 32 33 33 32 2c 22 73 69 67 6e 22 3a 22 32 65 37 38 66 33 35 37 66 35 34 37 33 32 63 39 30 66 33 62 65 62 62 32 66 62 36 61 33 38 36 35 22 2c 22 64 50 72 6f 74 6f 63 6f 6c 22 3a 22 6d 71 74 74 22 2c 22 76 65 72 73 69 6f 6e 22 3a 22 31 2e 31 22 2c 22 73 69 67 6e 4d 65 74 68 6f 64 22 3a 22 4d 64 35 22 2c 22 73 74 72 65 61 6d 46 69 6c 65 49 64 22 3a 31 2c 22 6d 64 35 22 3a 22 32 65 37 38 66 33 35 37 66 35 34 37 33 32 63 39 30 66 33 62 65 62 62 32 66 62 36 61 33 38 36 35 22 7d 2c 22 69 64 22 3a 31 36 39 35 32 38 31 35 33 36 38 37 34 2c 22 6d 65 73 73 61 67 65 22 3a 22 73 75 63 63 65 73 73 22 7d 
+
+/ota/device/upgrade/k08lcwgm0Ts/MQTTtest{"code":"1000","data":{"size":4252,"streamId":12332,"sign":"2e78f357f54732c90f3bebb2fb6a3865","dProtocol":"mqtt","version":"1.1","signMethod":"Md5","streamFileId":1,"md5":"2e78f357f54732c90f3bebb2fb6a3865"},"id":1695281536874,"message":"success"}
+```
+
+### 设备请求下载文件分片
+
+升级包下载协议为MQTT时，设备端获取OTA升级包信息后，可通过以下Topic分片下载OTA升级包文件。
+
+设备端通过MQTT协议下载的单个文件大小不能超过16 MB。
+
+- 请求Topic：`/sys/${productKey}/${deviceName}/thing/file/download`
+- 响应Topic：`/sys/${productKey}/${deviceName}/thing/file/download_reply`
+
+请求数据格式：
+
+```json
+{
+    "id": "123456",
+    "version": "1.0",
+    "params": {
+        "fileToken":"1bb8***",
+        "fileInfo":{
+            "streamId":1234565,
+            "fileId":1
+        },
+        "fileBlock":{
+            "size":256,
+            "offset":2
+        }
+    }
+}
+```
+
+响应数据格式：
+
+结构如下图：
+
+![结构图](./STM32开发.assets/p360652.png)
+
+- 响应的JSON数据格式：
+
+    ```json
+    {
+        "id": "123456",
+        "code":200,
+        "msg":"file size has exceeded the limit 16 MB",
+        "data": {
+            "fileToken":"1bb8***",
+            "fileLength":1238848,
+            "bSize":1491,
+            "bOffset":2
+        }
+    }
+    ```
+
+
+
+OTA下载需要订阅对应的thing/file/download_reply。
+
+目前所使用的是每256个字节为一包，下载到STM32F4内部的Flash中。
+
+```c
+        //收到download_reply,为bin文件的分片
+        if(strstr((const char*)Aliyun_mqtt.CMD_buff,"/sys/k08lcwgm0Ts/MQTTtest/thing/file/download_reply"))
+        {
+            u1_printf("一共%d字节\r\n",datalen);
+            for(int i = 0;i < datalen;i++)
+                u1_printf("%02x ",data[i]);
+            u1_printf("\r\n");
+
+            u1_printf("第%d字节处存放 %02x\r\n",(Aliyun_mqtt.num-1) * 256 + datalen - Aliyun_mqtt.downlen -2,data[datalen - Aliyun_mqtt.downlen -2]);
+            Flash_Write(Application_2_Addr + (Aliyun_mqtt.num-1) * 256,(uint32_t *)&data[datalen - Aliyun_mqtt.downlen -2],64);
+            Aliyun_mqtt.num++;
+            if(Aliyun_mqtt.num < Aliyun_mqtt.counter)
+            {
+                Aliyun_mqtt.downlen = 256;
+                MQTT_OTA_Download(Aliyun_mqtt.downlen,(Aliyun_mqtt.num-1) * 256);
+            }
+            else if(Aliyun_mqtt.num == Aliyun_mqtt.counter)
+            {
+                if(Aliyun_mqtt.size % 256 == 0)
+                {
+                    Aliyun_mqtt.downlen = 256;
+                    MQTT_OTA_Download(Aliyun_mqtt.downlen,(Aliyun_mqtt.num-1) * 256);
+                }
+                else
+                {
+                    Aliyun_mqtt.downlen = Aliyun_mqtt.size % 256;
+                    MQTT_OTA_Download(Aliyun_mqtt.downlen,(Aliyun_mqtt.num-1) * 256);
+                }
+            }
+            else
+            {
+                u1_printf("OTA下载完毕!\r\n");
+                Code_Storage_Done();
+                NVIC_SystemReset();
+            }
+        }
+
+void MQTT_GetOTAInfo(char *data)
+{
+    if(sscanf(data,"/ota/device/upgrade/k08lcwgm0Ts/MQTTtest{\"code\":\"1000\",\"data\":{\"size\":%d,\"streamId\":%d,\"sign\":\"%*32s\",\"dProtocol\"  \
+        :\"mqtt\",\"version\":\"%3s\",\"signMethod\":\"Md5\",\"streamFileId\":1,\"md5\":\"%*32s\"},\"id\":%*d,\"message\":\"success\"}",
+        &Aliyun_mqtt.size,&Aliyun_mqtt.streamId,Aliyun_mqtt.OTA_VerTemp) == 3)
+    {
+        u1_printf("OTA固件大小:%d\r\n",Aliyun_mqtt.size);
+        u1_printf("OTA固件ID:%d\r\n",Aliyun_mqtt.streamId);
+        u1_printf("OTA固件版本:%s\r\n",Aliyun_mqtt.OTA_VerTemp);
+
+        //计算下载总量
+        if(Aliyun_mqtt.size%256 == 0){
+            Aliyun_mqtt.counter = Aliyun_mqtt.size/256;
+        }else{
+            Aliyun_mqtt.counter = Aliyun_mqtt.size/256 + 1;
+        }
+        //初始化
+        Aliyun_mqtt.num = 1;
+        Aliyun_mqtt.downlen = 256;
+        MQTT_OTA_Download(Aliyun_mqtt.downlen,(Aliyun_mqtt.num-1)*256);
+    }
+}
+```
+
+
+
+可以使用WinHex软件查看Bin文件的排列测试程序
+
+![image-20230921220052093](./STM32开发.assets/image-20230921220052093.png)
+
+## 串口printf自定义
+
+```c
+static uint8_t USART1_TX_BUF[200];
+
+#define u1_printf(...)  HAL_UART_Transmit(&huart1,USART1_TX_BUF,sprintf((char *)USART1_TX_BUF,__VA_ARGS__),0xffff)
+                                                                                                                                                                    
+static uint8_t USART3_TX_BUF[200];
+
+#define u3_printf(...)  HAL_UART_Transmit(&huart3,USART3_TX_BUF,sprintf((char *)USART3_TX_BUF,__VA_ARGS__),0xffff)
+```
+
+## MQTT
+
+### 下载MQTT.fx
+
+[mqtt.fx | 一款超级好用的Mqtt客户端软件（下载、安装、使用详解）_Mculover666的博客-CSDN博客](https://blog.csdn.net/Mculover666/article/details/103799033)
+
+### MQTT标准文档
+
+[MQTT Version 3.1.1 (runoob.com)](https://www.runoob.com/manual/mqtt/protocol/MQTT-3.1.1-CN.pdf)
+
+### MQTT协议头对应十六进制
+
+|             |           |        |                                     |
+| ----------- | --------- | ------ | ----------------------------------- |
+| 控制报文    | 二进制    | 16进制 | 说明                                |
+| CONNECT     | 0001 0000 | 0x10   |                                     |
+| CONNACK     | 0010 0000 | 0x20   |                                     |
+| PUBLISH     | 0011 0000 | 0x30   | 示例中DUP、两个QoS、RETAIN全填0为例 |
+| PUBACK      | 0010 0000 | 0x40   |                                     |
+| PUBREC      | 0011 0000 | 0x50   |                                     |
+| PUBREL      | 0101 0000 | 0x60   |                                     |
+| PUBCOMP     | 0111 0000 | 0x70   |                                     |
+| SUBSCRIBE   | 1000 0010 | 0x82   |                                     |
+| SUBACK      | 1001 0000 | 0x90   |                                     |
+| UNSUBSCRIBE | 1010 0010 | 0xA2   |                                     |
+| UNSUBACK    | 1011 0000 | 0xB0   |                                     |
+| PINGREQ     | 1100 0000 | 0xC0   |                                     |
+| PINGRESP    | 1110 0000 | 0XD0   |                                     |
+| DISCONNECT  | 1111 0000 | 0xE0   |                                     |
+
+### MQTT.fx连接阿里云
+
+[MQTT.fx客户端MQTT接入阿里云物联网平台，登录、订阅、发布消息_云平台下物联网系统的搭建, 使用mqtt。fx完成于设备的主题订阅和发布-CSDN博客](https://blog.csdn.net/Mark_md/article/details/108316694)
+
+### DTU透传模式与指令模式的切换
+
+从网络透传切换至指令模式的时序： 
+
+1) 串口设备给模块连续发送“+++”，模块收到“+++”后，会给设备发送一个‘a’。
+2) 在发送“+++”之前的一个串口打包间隔时间内不可发送任何数据。 
+3) 当设备接收‘a’后，必须在 3 秒内给模块发送一个‘a’。 
+4) 模块在接收到‘a’后，给设备发送“+ok”，并进入“临时指令模式”。
+5) 设备接收到“+ok”后，知道模块已进入“临时指令模式”，可以向其发送 AT 指令。
+
+从指令模式切换回网络透传的时序： 
+
+1. 串口设备给模块发送指令“AT+ENTM”后面加回车符，16 进制表示 0x0D 0x0A。 
+2. 模块在接收到指令后，给设备发送“+OK”，并回到之前的工作模式。 
+3. 设备接收到“+OK”后，知道模块已回到之前的工作模式。
+
+### 配置服务器
+
+```c
+#define SERVER_CONFIG	"TCP,iot-060a70tq.mqtt.iothub.aliyuncs.com,1883"
+/**
+ * @brief DTU设置远程服务器
+ * 
+ */
+void DTU_Set_Server(void)
+{
+    u3_printf("AT+SOCKA=%s\r\n",SERVER_CONFIG);     //设置服务器地址和端口
+    HAL_Delay(30);
+
+    u3_printf("AT+SOCKAEN=ON\r\n");                 //开启SOCKA
+    HAL_Delay(30);
+
+    u3_printf("AT+SOCKBEN=ON\r\n");                 //开启SOCKB
+    HAL_Delay(30);
+
+    u3_printf("AT+SOCKCEN=ON\r\n");                 //开启SOCKC
+    HAL_Delay(30);
+    
+    u3_printf("AT+SOCKDEN=ON\r\n");                 //开启SOCKD
+    HAL_Delay(30);
+
+    u3_printf("AT+HEART=ON,NET,USER,60,C000\r\n");  //设置心跳
+    HAL_Delay(30);
+
+    u3_printf("AT+S\r\n");                          //保存配置
+    HAL_Delay(30);
+}
+```
+
+### Connect
+
+```c
+/**
+ * @brief MQTT的Connect报文
+ * 
+ */
+void MQTT_ConnectPack(void)
+{
+    Aliyun_mqtt.MessageID = 1;
+    Aliyun_mqtt.Fixed_len = 1;
+    Aliyun_mqtt.Variable_len = 10;
+    Aliyun_mqtt.Payload_len = 2 + strlen(CLIENTID) + 2 + strlen(USERNAME) + 2 + strlen(PASSWORD);   //其中的2都表示为长度
+    Aliyun_mqtt.Remaining_len = Aliyun_mqtt.Variable_len + Aliyun_mqtt.Payload_len;
+
+    /* 固定报头 */
+    Aliyun_mqtt.Pack_buff[0] = 0x10;    //connect报头
+
+    //判断剩余长度是一个字节还是两个字节
+    do{
+        if(Aliyun_mqtt.Remaining_len/128 == 0)
+            Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len] = Aliyun_mqtt.Remaining_len;
+        else
+            Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len] = (Aliyun_mqtt.Remaining_len%128) | 0x80;
+
+        Aliyun_mqtt.Fixed_len++;
+        Aliyun_mqtt.Remaining_len = Aliyun_mqtt.Remaining_len/128;
+    }while(Aliyun_mqtt.Remaining_len);
+
+    /* 可变报头 */
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 0] = 0x00;
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 1] = 0x04;
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 2] = 0x4D;    //'M'
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 3] = 0x51;    //'Q'
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 4] = 0x54;    //'T'
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 5] = 0x54;    //'T'
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 6] = 0x04;    //协议级别04
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 7] = 0xC2;    //连接标志
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 8] = 0x00;    //保持连接时间高字节（100）
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 9] = 0x64;    //保持连接时间低字节（100）
+
+    /* 有效负载 */
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 10] = strlen(CLIENTID)/256;
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 11] = strlen(CLIENTID)%256;
+    memcpy(&Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 12],CLIENTID,strlen(CLIENTID));
+
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 12 + strlen(CLIENTID)] = strlen(USERNAME)/256;
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 13 + strlen(CLIENTID)] = strlen(USERNAME)%256;
+    memcpy(&Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 14 + strlen(CLIENTID)],USERNAME,strlen(USERNAME));
+
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 14 + strlen(CLIENTID) + strlen(USERNAME)] = strlen(PASSWORD)/256;
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 15 + strlen(CLIENTID) + strlen(USERNAME)] = strlen(PASSWORD)%256;
+    memcpy(&Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 16 + strlen(CLIENTID) + strlen(USERNAME)],PASSWORD,strlen(PASSWORD));
+    /* 使用DTU发送Connect报文给服务器 */
+    if(DTU_SendData(Aliyun_mqtt.Pack_buff,Aliyun_mqtt.Fixed_len + Aliyun_mqtt.Variable_len + Aliyun_mqtt.Payload_len))
+        u1_printf("Connect报文发送成功,等待服务器回应\r\n");
+
+}
+```
+
+使用网络调试助手，选择TCP Client，输入阿里云上的url和端口，将Connect的报文以十六进制发送，接收区也以十六进制显示。最后显示20 02 00 00 ，代表连接服务器成功。
+
+![image-20230920173515687](./STM32开发.assets/image-20230920173515687.png)
+
+#### CONNACK
+
+接收到的一般类似20 02 00 00
+
+90为订阅应答头，02是剩余长度，等于可变报头的长度固定为2，第 1 个字节是连接确认标志，位 7-1 是保留位且必须设置为 0，连接返回码为可变报头的第二个字节，0x00 连接已接受，其他都是出错。
+
+### Subscribe与UnSubscribe
+
+#### Subscribe
+
+```c
+/**
+ * @brief MQTT的Subscribe报文
+ * 
+ */
+void MQTT_SubscribePack(char *topic)
+{
+    Aliyun_mqtt.Fixed_len = 1;
+    Aliyun_mqtt.Variable_len = 2;
+    Aliyun_mqtt.Payload_len = 2 + strlen(topic) + 1;   //其中的2都表示为长度,1代表服务质量等级
+    Aliyun_mqtt.Remaining_len = Aliyun_mqtt.Variable_len + Aliyun_mqtt.Payload_len;
+
+    /* 固定报头 */
+    Aliyun_mqtt.Pack_buff[0] = 0x82;    //Subscrib报头
+
+    //判断剩余长度是一个字节还是两个字节
+    MQTT_Remaining_Len_Process();
+
+    /* 可变报头 */
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 0] = Aliyun_mqtt.MessageID/256;
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 1] = Aliyun_mqtt.MessageID%256;
+    Aliyun_mqtt.MessageID++;
+
+    /* 有效负载 */
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 2] = strlen(topic)/256;
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 3] = strlen(topic)%256;
+    memcpy(&Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 4],topic,strlen(topic));
+
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 4 + strlen(topic)] = 0;   //服务质量等级为0
+
+    if(DTU_SendData(Aliyun_mqtt.Pack_buff,Aliyun_mqtt.Fixed_len + Aliyun_mqtt.Variable_len + Aliyun_mqtt.Payload_len))
+        u1_printf("Subscribe报文发送成功,等待服务器回应\r\n");
+}
+```
+
+#### SUBACK
+
+接收到的一般类似90 03 00 01 01
+
+90为订阅应答头，03是剩余长度，等于可变报头的长度加上有效载荷的长度，最后两个字节为报文标识符。
+
+#### UnSubscribe
+
+```c
+/**
+ * @brief MQTT的UnSubscribe报文
+ * 
+ */
+void MQTT_UnSubscribePack(char *topic)
+{
+    Aliyun_mqtt.Fixed_len = 1;
+    Aliyun_mqtt.Variable_len = 2;
+    Aliyun_mqtt.Payload_len = 2 + strlen(topic);
+    Aliyun_mqtt.Remaining_len = Aliyun_mqtt.Variable_len + Aliyun_mqtt.Payload_len;
+
+    /* 固定报头 */
+    Aliyun_mqtt.Pack_buff[0] = 0xA0;    //Subscrib报头
+
+    //判断剩余长度是一个字节还是两个字节
+    MQTT_Remaining_Len_Process();
+
+    /* 可变报头 */
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 0] = Aliyun_mqtt.MessageID/256;
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 1] = Aliyun_mqtt.MessageID%256;
+    Aliyun_mqtt.MessageID++;
+
+    /* 有效负载 */
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 2] = strlen(topic)/256;
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 3] = strlen(topic)%256;
+    memcpy(&Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 4],topic,strlen(topic));
+
+    if(DTU_SendData(Aliyun_mqtt.Pack_buff,Aliyun_mqtt.Fixed_len + Aliyun_mqtt.Variable_len + Aliyun_mqtt.Payload_len))
+        u1_printf("UnSubscribe报文发送成功,等待服务器回应\r\n");
+}
+```
+
+#### UNSUBACK
+
+接收到的一般类似b0 02 00 02 
+
+B0为订阅应答头，02是剩余长度，为固定值，最后两个字节为报文标识符。
+
+### Publish
+
+#### 添加自定义功能
+
+在产品->功能定义->编辑草稿->添加自定义功能
+
+这边我们添加一个”开关1“的功能，设置为bool型
+
+![image-20230921111752557](./STM32开发.assets/image-20230921111752557.png)
+
+**确认**完之后，一定要点击"**发布上线**"
+
+可以使用设备中的在线调试来初步调试代码。通过在线调试，设置开关的属性，STM32会通过DTU获得数据。
+
+```c
+/**
+ * @brief MQTT的处理Publish报文（等级0）
+ * 
+ * @param data 数据指针
+ * @param datalen 数据长度
+ */
+void MQTT_DealPublishData(uint8_t *data,uint16_t datalen)
+{
+    uint8_t i;
+
+    //通过与0x80相与，判断剩余长度的位数
+    for(i = 1;i < 5;i++)
+    {
+        if((data[i] & 0x80) == 0)
+            break;
+    }
+
+    memset(Aliyun_mqtt.CMD_buff,0,512);
+    memcpy(Aliyun_mqtt.CMD_buff,&data[1+i+2],datalen-1-i-2);
+
+}
+
+/**
+ * @brief MQTT的发送Publish报文（等级0）
+ * 
+ * @param topic 订阅的标题
+ * @param data 发送的数据
+ */
+void MQTT_PublishDataQos0(char *topic,char *data)
+{
+    Aliyun_mqtt.Fixed_len = 1;
+    Aliyun_mqtt.Variable_len = 2 + strlen(topic);   //等级0没有报文标识符
+    Aliyun_mqtt.Payload_len = strlen(data);
+    Aliyun_mqtt.Remaining_len = Aliyun_mqtt.Variable_len + Aliyun_mqtt.Payload_len;
+
+    /* 固定报头 */
+    Aliyun_mqtt.Pack_buff[0] = 0x30;    //PublishQs0报头
+
+    //判断剩余长度是一个字节还是两个字节
+    MQTT_Remaining_Len_Process();
+
+    /* 可变报头 */
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 0] = strlen(topic)/256;
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 1] = strlen(topic)%256;
+    memcpy(&Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 2],topic,strlen(topic));
+
+    /* 有效负载 */
+    memcpy(&Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 2 + strlen(topic)],data,strlen(data));
+
+    if(DTU_SendData(Aliyun_mqtt.Pack_buff,Aliyun_mqtt.Fixed_len + Aliyun_mqtt.Variable_len + Aliyun_mqtt.Payload_len))
+        u1_printf("PublishQs0报文发送成功!\r\n");
+}
+
+/**
+ * @brief MQTT的发送Publish报文（等级1）
+ * 
+ * @param topic 订阅的标题
+ * @param data 发送的数据
+ */
+void MQTT_PublishDataQos1(char *topic,char *data)
+{
+    Aliyun_mqtt.Fixed_len = 1;
+    Aliyun_mqtt.Variable_len = 2 + strlen(topic) + 2;
+    Aliyun_mqtt.Payload_len = strlen(data);
+    Aliyun_mqtt.Remaining_len = Aliyun_mqtt.Variable_len + Aliyun_mqtt.Payload_len;
+
+    /* 固定报头 */
+    Aliyun_mqtt.Pack_buff[0] = 0x32;    //PublishQos1报头
+
+    //判断剩余长度是一个字节还是两个字节
+    MQTT_Remaining_Len_Process();
+
+    /* 可变报头 */
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 0] = strlen(topic)/256;
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 1] = strlen(topic)%256;
+    memcpy(&Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 2],topic,strlen(topic));
+
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 2 + strlen(topic)] = Aliyun_mqtt.MessageID/256;
+    Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 3 + strlen(topic)] = Aliyun_mqtt.MessageID%256;
+    Aliyun_mqtt.MessageID++;
+
+    /* 有效负载 */
+    memcpy(&Aliyun_mqtt.Pack_buff[Aliyun_mqtt.Fixed_len + 4 + strlen(topic)],data,strlen(data));
+
+    if(DTU_SendData(Aliyun_mqtt.Pack_buff,Aliyun_mqtt.Fixed_len + Aliyun_mqtt.Variable_len + Aliyun_mqtt.Payload_len))
+        u1_printf("PublishQs1报文发送成功!\r\n");
+}
+```
+
+
+
+#### PUBACK(Qs1)
+
+PUBACK是对ＱｏＳ等级的ＰＵＢＬＩＳＨ报文的回复。
+
+接收到的一般类似40 02 00 02 
+
+４０为订阅应答头，02是剩余长度，为固定值，最后两个字节为报文标识符。
+
+## 参考教程
+
+[001-使用阿里云物联网平台 OTA 远程升级STM32程序-基于ESP8266 - 广源时代 - 博客园 (cnblogs.com)](https://www.cnblogs.com/yangfengwu/p/13591513.html)
+
+[stm32 esp8266 ota升级-自建mqtt和文件服务器全量升级_esp8266 stm32 ota_hbwsmile的博客-CSDN博客](https://blog.csdn.net/a554521655/article/details/128492112)
+
+[STM32&4G模组实现OTA升级_stm32 ota升级 github_linggan17的博客-CSDN博客](https://blog.csdn.net/qq_42722691/article/details/113247862)
+
+[001-STM32+Air724UG(4G模组)基本控制篇(阿里云物联网平台)-使用MQTT接入阿里云物联网平台_杨奉武的博客-CSDN博客](https://blog.csdn.net/qq_14941407/article/details/115594411)
+
+视频教程首推B站超子说物联网，里面都是关于物联网的视频

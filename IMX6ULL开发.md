@@ -3921,3 +3921,244 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("bcl");
 ```
 
+## Linux并发与竞争
+
+Linux是一个多任务操作系统，肯定会存在多个任务共同操作同一段内存或者设备的情况，多个任务甚至中断都能访问的资源叫做共享资源。在驱动开发中要注意对共享资源的保护，也就是要处理对共享资源的并发访问。
+
+现在的 Linux 系统并发产生的原因很复杂，总结一下有下面几个主要原因：
+
+①、多线程并发访问，Linux 是多任务(线程)的系统，所以多线程访问是最基本的原因。
+
+②、抢占式并发访问，从 2.6 版本内核开始，Linux 内核支持抢占，也就是说调度程序可以 在任意时刻抢占正在运行的线程，从而运行其他的线程。
+
+③、中断程序并发访问，这个无需多说，STM32 中硬件中断的权利可是很大的。
+
+④、SMP(多核)核间并发访问，现在 ARM 架构的多核 SOC 很常见，多核 CPU 存在核间并发访问。
+
+### 原子操作
+
+原子操作就是指不能再进一步分割的操作，一般原子操作用于变量或者位操作。
+
+Linux 内核 提供了一组原子操作 API 函数来完成此功能，Linux 内核提供了两组原子操作 API 函数，一组是对整形变量进行操作的，一组是对位进行操作的，我们接下来看一下这些 API 函数。
+
+#### 原子操作API
+
+```c
+typedef struct {
+	int counter;
+} atomic_t;	//64位SOC使用atomic64_t
+```
+
+此结构体定义在 include/linux/types.h 文件中
+
+atomic_t b = ATOMIC_INIT(0); //定义原子变量 b 并赋初值为 0
+
+**原子整型操作API**
+
+|                    函数                     |                     描述                     |
+| :-----------------------------------------: | :------------------------------------------: |
+|             ATOMIC_INIT(int i)              |        定义原子变量的时候对其初始化。        |
+|        int atomic_read(atomic_t *v)         |           读取 v 的值，并且返回。            |
+|     void atomic_set(atomic_t *v, int i)     |               向 v 写入 i 值。               |
+|     void atomic_add(int i, atomic_t *v)     |               给 v 加上 i 值。               |
+|     void atomic_sub(int i, atomic_t *v)     |               从 v 减去 i 值。               |
+|        void atomic_inc(atomic_t *v)         |           给 v 加 1，也就是自增。            |
+|        void atomic_dec(atomic_t *v)         |           从 v 减 1，也就是自减。            |
+|     int atomic_dec_return(atomic_t *v)      |         从 v 减 1，并且返回 v 的值。         |
+|     int atomic_inc_return(atomic_t *v)      |         给 v 加 1，并且返回 v 的值。         |
+| int atomic_sub_and_test(int i, atomic_t *v) | 从 v 减 i，如果结果为 0 就返回真，否则返回假 |
+|    int atomic_dec_and_test(atomic_t *v)     | 从 v 减 1，如果结果为 0 就返回真，否则返回假 |
+|    int atomic_inc_and_test(atomic_t *v)     | 给 v 加 1，如果结果为 0 就返回真，否则返回假 |
+| int atomic_add_negative(int i, atomic_t *v) | 给 v 加 i，如果结果为负就返回真，否则返回假  |
+
+**原子位操作API**
+
+|                   函数                   |                       描述                        |
+| :--------------------------------------: | :-----------------------------------------------: |
+|      void set_bit(int nr, void *p)       |             将 p 地址的第 nr 位置 1。             |
+|      void clear_bit(int nr,void *p)      |             将 p 地址的第 nr 位清零。             |
+|     void change_bit(int nr, void *p)     |           将 p 地址的第 nr 位进行翻转。           |
+|      int test_bit(int nr, void *p)       |            获取 p 地址的第 nr 位的值。            |
+|  int test_and_set_bit(int nr, void *p)   | 将 p 地址的第 nr 位置 1，并且返回 nr 位原来的值。 |
+| int test_and_clear_bit(int nr, void *p)  | 将 p 地址的第 nr 位清零，并且返回 nr 位原来的值。 |
+| int test_and_change_bit(int nr, void *p) | 将 p 地址的第 nr 位翻转，并且返回 nr 位原来的值。 |
+
+### 自旋锁
+
+原子操作只能对整形变量或者位进行保护，但是，在实际的使用环境中怎么可能只有整形变量或位这么简单的临界区。
+
+对于自旋锁而言，如果自旋锁正在被线程 A 持有，线程 B 想要获取自旋锁，那么线程 B 就会处于忙循环-旋转-等待状态，线程 B 不会进入休眠状态或者说去做其他的处理，而是会一直傻傻的在那里“转圈圈”的等待锁可用。
+
+**自旋锁的缺点**：等待自旋锁的线程会一直处于自旋状态，这样会浪费处理器时间，降低系统性能，所以自旋锁的持有时间不能太长。
+
+```c
+typedef struct spinlock {
+	union {
+		struct raw_spinlock rlock;
+
+#ifdef CONFIG_DEBUG_LOCK_ALLOC
+# define LOCK_PADSIZE (offsetof(struct raw_spinlock, dep_map))
+		struct {
+			u8 __padding[LOCK_PADSIZE];
+			struct lockdep_map dep_map;
+		};
+#endif
+	};
+} spinlock_t;
+```
+
+#### 自旋锁API
+
+**自旋锁基本 API 函数表**
+
+|                 函数                 |                             描述                             |
+| :----------------------------------: | :----------------------------------------------------------: |
+|   DEFINE_SPINLOCK(spinlock_t lock)   |                  定义并初始化一个自选变量。                  |
+| int spin_lock_init(spinlock_t *lock) |                        初始化自旋锁。                        |
+|   void spin_lock(spinlock_t *lock)   |                获取指定的自旋锁，也叫做加锁。                |
+|  void spin_unlock(spinlock_t *lock)  |                      释放指定的自旋锁。                      |
+|  int spin_trylock(spinlock_t *lock)  |         尝试获取指定的自旋锁，如果没有获取到就返回 0         |
+| int spin_is_locked(spinlock_t *lock) | 检查指定的自旋锁是否被获取，如果没有被获取就返回非 0，否则返回 0。 |
+
+上述这些API适用于线程之间的并发访问，被自旋锁保护的临界区一定不能调用任何能够引起睡眠和阻塞的 API 函数，否则的话会可能会导致死锁现象的发生。
+
+线程之间的并发访问，中断有时候也会插手，在中断里也可以使用自旋锁，在获取锁之前一定要先禁止本地中断（也就是本 CPU 中断，对于多核 SOC 来说会有多个 CPU 核）。
+
+**线程与中断并发访问处理 API 函数**
+
+|                             函数                             |                            描述                             |
+| :----------------------------------------------------------: | :---------------------------------------------------------: |
+|             void spin_lock_irq(spinlock_t *lock)             |                禁止本地中断，并获取自旋锁。                 |
+|            void spin_unlock_irq(spinlock_t *lock)            |                激活本地中断，并释放自旋锁。                 |
+| void spin_lock_irqsave(spinlock_t *lock,  unsigned long flags) |         保存中断状态，禁止本地中断，并获取自旋锁。          |
+| void spin_unlock_irqrestore(spinlock_t  *lock, unsigned long flags) | 将中断状态恢复到以前的状态，并且激活本地中断， 释放自旋锁。 |
+
+建议使用 spin_lock_irqsave/spin_unlock_irqrestore，因为这一组函数会保存中断状态，在释放锁的时候会恢复中断状态。一般在线程中使用 spin_lock_irqsave/ spin_unlock_irqrestore，在中断中使用 spin_lock/spin_unlock。
+
+```c
+DEFINE_SPINLOCK(lock) /* 定义并初始化一个锁 */
+
+/* 线程 A */
+void functionA (){
+	unsigned long flags; /* 中断状态 */
+	spin_lock_irqsave(&lock, flags) /* 获取锁 */
+	/* 临界区 */
+	spin_unlock_irqrestore(&lock, flags) /* 释放锁 */
+}
+
+/* 中断服务函数 */
+void irq() {
+	spin_lock(&lock) /* 获取锁 */
+	/* 临界区 */
+	spin_unlock(&lock) /* 释放锁 */
+}
+```
+
+**下半部竞争处理函数**
+
+|                 函数                  |            描述            |
+| :-----------------------------------: | :------------------------: |
+|  void spin_lock_bh(spinlock_t *lock)  | 关闭下半部，并获取自旋锁。 |
+| void spin_unlock_bh(spinlock_t *lock) | 打开下半部，并释放自旋锁。 |
+
+下半部(BH)也会竞争共享资源，有些资料也会将下半部叫做底半部。
+
+#### 其他类型的锁
+
+读写自旋锁
+
+顺序锁
+
+#### 自旋锁使用注意事项
+
+①、因为在等待自旋锁的时候处于“自旋”状态，因此锁的持有时间不能太长，一定要短，否则的话会降低系统性能。如果临界区比较大，运行时间比较长的话要选择其他的并发处理方式，比如稍后要讲的信号量和互斥体。
+
+②、自旋锁保护的临界区内不能调用任何可能导致线程休眠的 API 函数，否则的话可能导致死锁。 
+
+③、不能递归申请自旋锁，因为一旦通过递归的方式申请一个你正在持有的锁，那么你就必须“自旋”，等待锁被释放，然而你正处于“自旋”状态，根本没法释放锁。结果就是自己把自己锁死了！ 
+
+④、在编写驱动程序的时候我们必须考虑到驱动的可移植性，因此不管你用的是单核的还是多核的 SOC，都将其当做多核 SOC 来编写驱动程序。
+
+### 信号量
+
+信号量的特点：
+①、因为信号量可以使等待资源线程进入休眠状态，因此适用于那些占用资源比较久的场合。
+
+②、因此**信号量不能用于中断**中，因为信号量会引起休眠，中断不能休眠。
+
+ ③、如果共享资源的持有时间比较短，那就不适合使用信号量了，因为频繁的休眠、切换线程引起的开销要远大于信号量带来的那点优势。
+
+#### 信号量API
+
+```c
+struct semaphore {
+ 	raw_spinlock_t lock;
+ 	unsigned int count;
+ 	struct list_head wait_list;
+};
+```
+
+|                      函数                      |                             描述                             |
+| :--------------------------------------------: | :----------------------------------------------------------: |
+|             DEFINE_SEAMPHORE(name)             |           定义一个信号量，并且设置信号量的值为 1。           |
+| void sema_init(struct semaphore *sem, int val) |            初始化信号量 sem，设置信号量值为 val。            |
+|        void down(struct semaphore *sem)        |      获取信号量，因为会导致休眠，因此不能在中断中使用。      |
+|    int down_trylock(struct semaphore *sem);    | 尝试获取信号量，如果能获取到信号量就获取，并且返回 0。如果不能就返回非 0，并且 不会进入休眠。 |
+| int down_interruptible(struct semaphore *sem)  | 获取信号量，和 down 类似，只是使用 down 进入休眠状态的线程不能被信号打断。而使用此函数进入休眠以后是可以被信号打断的。 |
+|         void up(struct semaphore *sem)         |                          释放信号量                          |
+
+```c
+/* 信号量使用示例 */
+struct semaphore sem; /* 定义信号量 */
+sema_init(&sem, 1); /* 初始化信号量 */
+down(&sem); /* 申请信号量 */
+/* 临界区 */
+up(&sem); /* 释放信号量 */
+```
+
+### 互斥体
+
+```c
+struct mutex {
+ 	/* 1: unlocked, 0: locked, negative: locked, possible waiters */
+ 	atomic_t count;
+ 	spinlock_t wait_lock;
+};
+```
+
+使用 mutex 的时候要注意如下几点：
+
+①、mutex 可以导致休眠，因此不能在中断中使用 mutex，中断中只能使用自旋锁。 
+
+②、和信号量一样，mutex 保护的临界区可以调用引起阻塞的 API 函数。 
+
+③、因为一次只有一个线程可以持有 mutex，因此，必须由 mutex 的持有者释放 mutex。并且 mutex 不能递归上锁和解锁。
+
+#### 互斥体API
+
+|                       函数                       |                          描述                           |
+| :----------------------------------------------: | :-----------------------------------------------------: |
+|                DEFINE_MUTEX(name)                |              定义并初始化一个 mutex 变量。              |
+|           void mutex_init(mutex *lock)           |                     初始化 mutex。                      |
+|       void mutex_lock(struct mutex *lock)        | 获取 mutex，也就是给 mutex 上锁。如果获取不到就进休眠。 |
+|      void mutex_unlock(struct mutex *lock)       |             释放 mutex，也就给 mutex 解锁。             |
+|      int mutex_trylock(struct mutex *lock)       |  尝试获取 mutex，如果成功就返回 1，如果失败就返回 0。   |
+|     int mutex_is_locked(struct mutex *lock)      | 判断 mutex 是否被获取，如果是的话就返回 1，否则返回 0。 |
+| int mutex_lock_interruptible(struct mutex *lock) |  使用此函数获取信号量失败进入休眠以后可以被信号打断。   |
+
+```c
+/* 互斥体使用示例 */
+struct mutex lock; /* 定义一个互斥体 */
+mutex_init(&lock); /* 初始化互斥体 */
+
+mutex_lock(&lock); /* 上锁 */
+/* 临界区 */
+mutex_unlock(&lock); /* 解锁 */
+```
+
+## Linux并发与竞争实验
+
+### 原子操作实验
+
+拷贝gpioled文件夹，更改内部的文件名，稍作修改。
+
