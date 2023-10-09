@@ -4160,5 +4160,414 @@ mutex_unlock(&lock); /* 解锁 */
 
 ### 原子操作实验
 
-拷贝gpioled文件夹，更改内部的文件名，稍作修改。
+拷贝gpioled文件夹，更改内部的文件名，稍作修改。详细见代码。
 
+### 自旋锁实验
+
+拷贝gpioled文件夹，更改内部的文件名，稍作修改。详细见代码。
+
+### 信号量实验
+
+拷贝gpioled文件夹，更改内部的文件名，稍作修改。详细见代码。
+
+### 互斥体实验
+
+拷贝gpioled文件夹，更改内部的文件名，稍作修改。详细见代码。
+
+## Linux输入按键实验
+
+只是演示LinuxGPIO输入驱动的编写，实际按键驱动会使用input子系统。
+
+### 修改设备树
+
+#### 添加pinctrl节点
+
+```
+		pinctrl_key: keygrp {
+			fsl,pins = <
+				MX6UL_PAD_UART1_CTS_B__GPIO1_IO18	0xf080	/* KEY0 */
+			>;
+		};
+```
+
+#### 添加key设备节点
+
+```
+	/* key */
+	key {
+		#address-cells = <1>;
+		#size-cells = <1>;
+		compatible = "atkalpha-key";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_key>;
+		key-gpio = <&gpio1 18 GPIO_ACTIVE_LOW>;
+		status = "okay";
+	};
+```
+
+### 编写驱动代码
+
+```c
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/io.h>
+#include <linux/cdev.h>
+#include <linux/device.h>
+#include <linux/of.h>
+#include <linux/of_address.h>
+#include <linux/of_gpio.h>
+
+#define KEY_CNT     1           /* 设备号个数 */
+#define KEY_NAME    "key"       /* 名字 */
+
+/* 定义按键值 */
+#define KEY0VALUE         0xf0           /* 按键值 */
+#define INVAKEY           0x00           /* 无效按键值 */
+
+/* key设备结构体 */
+struct key_dev{
+    dev_t devid;                /* 设备号 */
+    int major;                  /* 主设备号 */
+    int minor;                  /* 次设备号 */
+    struct cdev cdev;           /* cdev */
+    struct class *class;        /* 类 */
+    struct device *device;      /* 设备 */
+    struct device_node *nd;     /* 设备节点 */
+    int key_gpio;               /* key使用的GPIO编号 */
+    atomic_t key_value;         /* 按键值 */
+};
+
+struct key_dev keydev; /* key设备 */
+
+static int key_open(struct inode *inode, struct file *filp)
+{
+    filp->private_data = &keydev;   //设置私有属性
+    return 0;
+}
+
+static int key_close(struct inode *inode, struct file *filp)
+{
+    return 0;
+}
+
+static ssize_t key_read(struct file *filp, char __user *buf, size_t count, loff_t *ppos)
+{
+    int ret = 0;
+    unsigned char value;
+    struct key_dev *dev = (struct key_dev *)filp->private_data;
+
+    if(gpio_get_value(dev->key_gpio) == 0){     /* key0按下 */
+        while(!gpio_get_value(dev->key_gpio));  /* 等待按键释放 */
+        atomic_set(&dev->key_value,KEY0VALUE);
+    }else{
+        atomic_set(&dev->key_value,INVAKEY);
+    }
+
+    value = atomic_read(&dev->key_value);       /* 保存按键值 */
+    ret = copy_to_user(buf,&value,sizeof(value));
+    
+    return ret;
+}
+
+/* 设备操作函数 */
+static const struct file_operations key_fops = {
+    .owner   = THIS_MODULE,
+    .open    = key_open,
+    .release = key_close,
+    .read    = key_read,
+};
+
+/* 驱动入口函数 */
+static int __init key_init(void)
+{
+    int ret;
+
+    /* 初始化原子变量 */
+    atomic_set(&keydev.key_value,INVAKEY);
+
+    /* 申请设备号 */
+    keydev.major = 0;  //由内核分配
+    if(keydev.major){  //给定设备号
+        keydev.devid = MKDEV(keydev.major,0);
+        ret = register_chrdev_region(keydev.devid,KEY_CNT,KEY_NAME);
+    }else{
+        ret = alloc_chrdev_region(&keydev.devid,0,KEY_CNT,KEY_NAME);
+        keydev.major = MAJOR(keydev.devid);
+        keydev.minor = MINOR(keydev.devid);
+    }
+    printk("key major = %d,minor = %d\n",keydev.major,keydev.minor);
+    if(ret < 0){
+        goto fail_devid;
+    }
+
+    /* 2.添加字符设备 */
+    keydev.cdev.owner = THIS_MODULE;
+    cdev_init(&keydev.cdev,&key_fops);
+    ret = cdev_add(&keydev.cdev,keydev.devid,KEY_CNT);
+    if(ret < 0){
+        goto fail_cdev;
+    }
+
+    /* 自动添加设备节点 */
+    /* 1.添加类 */
+    keydev.class = class_create(THIS_MODULE,KEY_NAME);
+    if(IS_ERR(keydev.class)){
+        ret = PTR_ERR(keydev.class);
+        goto fail_class;
+    }
+
+    /* 2.添加设备 */
+    keydev.device = device_create(keydev.class,NULL,keydev.devid,NULL,KEY_NAME);
+    if(IS_ERR(keydev.device)){
+        ret = PTR_ERR(keydev.device);
+        goto fail_device;
+    }
+
+    /* 设置KEY所使用的GPIO */
+    /* 1.获取设备节点：key */
+    keydev.nd = of_find_node_by_path("/key");  //设备节点名
+    if(keydev.nd == NULL){
+        printk("key node can't not found\n");
+        ret = -EINVAL;
+        goto fail_node;
+    }else{
+        printk("key node has been found\n");
+    }
+
+    /* 2.获取设备树中的gpio属性，得到KEY的编号 */
+    keydev.key_gpio = of_get_named_gpio(keydev.nd,"key-gpio",0);//根据设备树实际命名更改
+    if(keydev.key_gpio < 0){
+        printk("can't get key-gpio\n");
+        ret = -EINVAL;
+        goto fail_node;
+    }
+    printk("key-gpio num = %d\n",keydev.key_gpio);
+
+    /* 3.请求gpio */
+    ret = gpio_request(keydev.key_gpio,"key-gpio");
+    if(ret){
+        printk("can't request key-gpio\n");
+        goto fail_node;
+    }
+
+    /* 4.设置 GPIO1_IO018 为输入 */
+    ret = gpio_direction_input(keydev.key_gpio);
+    if(ret < 0){
+        printk("can't set gpio\n");
+        goto fail_setoutput;
+    }
+
+    return 0;
+
+fail_setoutput:
+    gpio_free(keydev.key_gpio);
+fail_node:
+    device_destroy(keydev.class,keydev.devid);
+fail_device:
+    class_destroy(keydev.class);
+fail_class:
+    cdev_del(&keydev.cdev);
+fail_cdev:
+    unregister_chrdev_region(keydev.devid,KEY_CNT);
+fail_devid:
+    return ret;
+}
+
+/* 驱动出口函数 */
+static void __exit key_exit(void)
+{
+    /* 释放KEY的gpio */
+    gpio_free(keydev.key_gpio);
+
+    /* 注销字符设备驱动 */
+    cdev_del(&keydev.cdev);    //删除cdev
+    unregister_chrdev_region(keydev.devid,KEY_CNT);    //注销设备号
+
+
+    device_destroy(keydev.class,keydev.devid);    //摧毁设备
+    class_destroy(keydev.class);   //摧毁类
+
+    return;
+}
+
+/* 注册驱动和卸载驱动 */
+module_init(key_init);
+module_exit(key_exit);
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("bcl");
+```
+
+```c
+#include <fcntl.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+
+/** 应用代码
+ * ./keyAPP <filename> 
+ * ./keyAPP /dev/key 
+*/
+
+/* 定义按键值 */
+#define KEY0VALUE         0xf0           /* 按键值 */
+#define INVAKEY           0x00           /* 无效按键值 */
+
+int main(int argc,char *argv[])
+{
+    int fd;
+    int ret;
+    char *filename;
+    unsigned char keyvalue;
+
+    /* 参数数量检测 */
+    if (argc != 2)
+    {
+        printf("Error usage\n");
+        return -1;
+    }
+
+    filename = argv[1];
+
+    /* 打开文件 */
+    fd = open(filename,O_RDWR);
+    if(fd < 0){
+        perror("open");
+        return -1;
+    }
+
+    /* 循环读取按键值数据！ */
+    while(1)
+    {
+        read(fd,&keyvalue,sizeof(keyvalue));
+        if(keyvalue == KEY0VALUE)
+        {
+            printf("KEY0 Press, value = %#X\r\n",keyvalue);
+        }
+        
+    }
+
+    /* 关闭文件 */
+    ret = close(fd);
+    if(ret){
+        perror("close");
+        return -1;
+    }
+    
+    return 0;
+}
+```
+
+## Linux内核定时器实验
+
+### Linux 时间管理和内核定时器简介
+
+Linux 内核中有大量的函数需要时间管理，中断周期性产生的频率就是系统频率， 也叫做节拍率(tick rate)(有的资料也叫系统频率)，比如 1000Hz，100Hz 等等说的就是系统节拍率。系统节拍率是可以设置的，单位是 Hz，我们在编译 Linux 内核的时候可以通过图形化界面设置系统节拍率，按照如下路径打开配置界面：
+
+```
+-> Kernel Features 
+ -> Timer frequency (<choice> [=y]) 
+```
+
+高节拍率和低节拍率的优缺点：
+
+①、高节拍率会提高系统时间精度。高精度时钟的好处有很多，对于那些对时间要求严格的函数来说，能够以更高的精度运行，时间测量也更加准确。
+
+②、高节拍率会导致中断的产生更加频繁，频繁的中断会加剧系统的负担。但是现在的处理器性能都很强大，所以采用 1000Hz 的系统节拍率并不会增加太大的负载压力。
+
+Linux 内核使用全局变量 jiffies 来记录系统从启动以来的系统节拍数，系统启动的时候会 将 jiffies 初始化为 0，jiffies 定义在文件 include/linux/jiffies.h
+
+jiffies 分为32位和64位，32位需要考虑绕回问题，64位则不需要。
+
+所以有以下几个API来比较：
+
+|             函数              |
+| :---------------------------: |
+|   time_after(unkown, known)   |
+|  time_before(unkown, known)   |
+| time_after_eq(unkown, known)  |
+| time_before_eq(unkown, known) |
+
+unkown 通常为 jiffies，known 通常是需要对比的值。 
+
+为了方便开发，Linux 内核提供了几个 jiffies 和 ms、us、ns 之间的转换函数
+
+|                    函数                     |                      描述                      |
+| :-----------------------------------------: | :--------------------------------------------: |
+| int jiffies_to_msecs(const unsigned long j) |  将 jiffies 类型的参数 j 分别转换为对应的毫秒  |
+| int jiffies_to_usecs(const unsigned long j) | 将 jiffies 类型的参数 j 分别转换为对应的微秒。 |
+| u64 jiffies_to_nsecs(const unsigned long j) | 将 jiffies 类型的参数 j 分别转换为对应的纳秒。 |
+| long msecs_to_jiffies(const unsigned int m) |          将毫秒转换为 jiffies 类型。           |
+| long usecs_to_jiffies(const unsigned int u) |          将微秒转换为 jiffies 类型。           |
+|    unsigned long nsecs_to_jiffies(u64 n)    |          将纳秒转换为 jiffies 类型。           |
+
+
+
+Linux 内核使用 timer_list 结构体表示内核定时器，timer_list 定义在文件 include/linux/timer.h 中
+
+```c
+struct timer_list {
+ 	struct list_head entry;
+ 	unsigned long expires; /* 定时器超时时间，单位是节拍数 */
+ 	struct tvec_base *base;
+ 	void (*function)(unsigned long); /* 定时处理函数 */
+ 	unsigned long data; /* 要传递给 function 函数的参数 */
+ 	int slack;
+};
+```
+
+内核定时器不是周期性的，一次定时时间到了之后就会关闭，需要重新打开。
+
+比如我们现在需要定义一个周期为 2 秒的定时器，那么这个定时器的超时时间就是 jiffies+(2*HZ)，因此 expires=jiffies+(2*HZ)。
+
+function 就是定时器超时以后的定时处理函数，我们要做的工作就放到这个函数里面，需要我们编写这个定时处理函数。
+
+定义好定时器以后还需要通过一系列的 API 函数来初始化此定时器
+
+1. **init_timer 函数**
+
+    init_timer 函数负责初始化 timer_list 类型变量，当我们定义了一个 timer_list 变量以后一定要先用 init_timer 初始化一下。
+
+2. **add_timer 函数**
+
+    dd_timer 函数用于向 Linux 内核注册定时器，使用 add_timer 函数向内核注册定时器以后，定时器就会开始运行。
+
+3. **del_timer 函数**
+
+    del_timer 函数用于删除一个定时器，不管定时器有没有被激活，都可以使用此函数删除。 在多处理器系统上，定时器可能会在其他的处理器上运行，因此在调用 del_timer 函数删除定时 器之前要先等待其他处理器的定时处理器函数退出。
+
+4. **del_timer_sync 函数**
+
+    del_timer_sync 函数是 del_timer 函数的同步版，会等待其他处理器使用完定时器再删除， del_timer_sync 不能使用在中断上下文中。
+
+5. **mod_timer 函数**
+
+    mod_timer 函数用于修改定时值，如果定时器还没有激活的话，mod_timer 函数会激活定时器！
+
+有时候我们需要在内核中实现短延时，尤其是在 Linux 驱动中。Linux 内核提供了毫秒、微秒和纳秒延时函数
+
+|               函数                |      描述      |
+| :-------------------------------: | :------------: |
+| void ndelay(unsigned long nsecs)  | 纳秒延时函数。 |
+| void udelay(unsigned long usecs)  | 微秒延时函数。 |
+| void mdelay(unsigned long mseces) | 毫秒延时函数。 |
+
+### 使用内核定时器周期性点灯
+
+程序中使用了ioctl函数，在驱动中需要在设备操作函数file_operations中添加unlocked_ioctl
+
+这里会涉及到下面两个函数的使用。
+
+```c
+long (*unlocked_ioctl) (struct file *, unsigned int, unsigned long);
+long (*compat_ioctl) (struct file *, unsigned int, unsigned long);
+```
+
+unlocked_ioctl在无大内核锁（BKL）的情况下调用。64位用户程序运行在64位的kernel，或32位的用户程序运行在32位的kernel上，都是调用unlocked_ioctl函数。
+
+compat_ioctl是64位系统提供32位ioctl的兼容方法，也在无大内核锁的情况下调用。即如果是32位的用户程序调用64位的kernel，则会调用compat_ioctl。如果驱动程序没有实现compat_ioctl，则用户程序在执行ioctl时会返回错误Not a typewriter。
+
+[linux驱动开发(四)：ioctl()函数_ioctl函数_精致的螺旋线的博客-CSDN博客](https://blog.csdn.net/baidu_38797690/article/details/123690825)

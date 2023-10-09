@@ -1323,13 +1323,11 @@ F1系列以页为单位，而F4以扇区为单位，这点在分区和擦除的�
 
 <center><p>F1系列Flash128K分布图</p></center>
 
-![img](./STM32开发.assets/format,png.png)
-
 ![img](./STM32开发.assets/format,png-1694571119379-5.png)
 
 <center><p>F4系列Flash分布图</p></center>
 
-我将它分为三个区.`BootLoader区`、 `App1区`、 `App2区(备份区)`具体划分如下图:
+我将它分为三个区`BootLoader区`、 `App1区`、 `App2区(备份区)`具体划分如下图:
 
 - `BootLoader区`存放启动代码
 - `App1区`存放应用代码
@@ -1363,7 +1361,7 @@ F1系列以页为单位，而F4以扇区为单位，这点在分区和擦除的�
 
     重点：
 
-    - 在裸机中应当在mian()函数第一行加入SCB->VTOR = 0x8000000UL | 0x00005000UL;/* 更改中断向量表地址 */，根据实际情况更改，一般使用宏来指定地址
+    - 在裸机中应当在main()函数第一行加入SCB->VTOR = 0x8000000UL | 0x00005000UL;/* 更改中断向量表地址 */，根据实际情况更改，一般使用宏来指定地址
     - 在RT-Thread中需要在rt_application_init前修改向量表
     - SGA库中Drv_HAL_Init函数的第一行加入对向量表地址的更改，即可同时完成对裸机和RTOS的向量表更改
 
@@ -1820,7 +1818,7 @@ sprintf(temp,"{\"id\": \"1\",\"params\": {\"version\": \"%s\",\"module\": \"MCU\
 
 结构如下图：
 
-![结构图](./STM32开发.assets/p360652.png)
+![p360652](./STM32开发.assets/p360652.png)
 
 - 响应的JSON数据格式：
 
