@@ -392,6 +392,88 @@ AP3216C设备地址为0x1e，在i2c0上
 
     
 
+# 自制IMX6ULL板
+
+## 关于IMX6ULL的启动方式
+
+启动方式的选择主要分为4种，类似于STM32的BOOT0和BOOT1。
+
+一般我们会选择内部BOOT模式，也就是BOOT_MODE1为1，BOOT_MODE0为0。
+
+### 启动设备的类型
+
+当 BOOT_MODE 设置为内部 BOOT 模式以后，可以从以下设备中启动：
+
+①、接到 EIM 接口的 CS0 (片选0)上的 16 位 NOR Flash。
+②、接到 EIM 接口的 CS0 (片选0)上的 OneNAND Flash。
+③、接到 GPMI 接口上的 MLC/SLC NAND Flash， NAND Flash 页大小支持 2KByte、 4KByte和 8KByte， 8 位宽。
+④、 Quad SPI Flash。
+⑤、接到 USDHC 接口上的 SD/MMC/eSD/SDXC/EMMC 等设备。
+⑥、 SPI 接口的 EEPROM。
+
+| BOOT_MODE[1:0] | BOOT类型       |
+| -------------- | -------------- |
+| 00             | 从 FUSE 启动   |
+| 01             | 串行下载       |
+| 10             | 内部 BOOT 模式 |
+| 11             | 保留(无效)     |
+
+**这些启动设备如何选择呢？通过BOOT_CFG选择**
+
+I.MX6U 同样提供了 eFUSE 和 GPIO 配置两种， eFUSE 就不讲解了。我们重点看如何通过 GPIO 来选择启动设备，因为所有的 I.MX6U 开发板都是通过 GPIO来配置启动设备的。
+
+正如启动模式由BOOT_MODE[1:0]来选择一样，启动设备是通过 BOOT_CFG1[7:0]、 BOOT_CFG2[7:0]和 BOOT_CFG4[7:0] （每个8位）这 24 个配置 IO，这 24 个配置 IO 刚好对应着 LCD 的 24 根数据线 LCD_DATA0~LCDDATA23，当启动完成以后这 24 个 IO 就可以作为 LCD 的数据线使用。这 24 根线和 BOOT_MODE1、 BOOT_MODE0 共同组成了 I.MX6U的启动选择引脚。
+
+![在这里插入图片描述](./IMX6ULL开发.assets/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3podWd1YW5saW4xMjE=,size_16,color_FFFFFF,t_70-1697779972052-6.png)
+
+一共有24个IO，但是在核心板中都使用下拉电阻接地了，只需要将对应的IO拉高电平即可。
+
+![在这里插入图片描述](./IMX6ULL开发.assets/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3podWd1YW5saW4xMjE=,size_16,color_FFFFFF,t_70-1697779920933-3.png)
+
+![在这里插入图片描述](./IMX6ULL开发.assets/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3podWd1YW5saW4xMjE=,size_16,color_FFFFFF,t_70.png)
+
+[【精选】ARM（IMX6U）裸机之I.MX6ULL硬件启动方式的选择_行稳方能走远的博客-CSDN博客](https://blog.csdn.net/zhuguanlin121/article/details/118899296)
+
+### 关于100M速率MAC接口
+
+需要和底板上的 PHY 芯片以及网络接口 （HR911105A），三者才能形成完整的网口。
+
+正点原子V2.2使用的是LAN8720A，V2.4使用的是SR8201F。
+
+注意要点：PHY 芯片和核心板之间的布线不能过长，尽量将 PHY 芯片靠近核心板。由于核心板会通过一根引脚给 PHY 芯片提供 50MHz 时钟，该引脚的布线过长的话会导致信号质量不佳，PHY 不能正常识别。核心板通过 MDIO 和 MDC 两个引脚对 PHY 芯片进行管理和通信，数据的传输是通过 TX 和 RX 相关引脚。PHY 芯片和网络接口的数据线需要走差分线。走线最好满足一下相关的走线标准需求。
+
+## 修改Uboot和内核的控制台波特率
+
+因为在实际使用中可能不会用到115200bps这么高的波特率，在采用RS232或RS485时，需要降低波特率，所以需要对Uboot和内核中的波特率进行更改。
+
+### 更改Uboot中控制台波特率
+
+a. 进入 U-Boot 命令行界面。通常可以通过串口连接到设备，在启动时按下相应的键（如空格键或回车键）进入 U-Boot 命令行。
+b. 使用 `printenv` 命令检查当前的环境变量，找到 `baudrate` 变量，该变量表示当前的波特率设置。记录下当前的波特率值。
+c. 使用 `setenv baudrate <新的波特率>` 命令设置新的波特率值，例如：`setenv baudrate 115200`。
+d. 使用 `saveenv` 命令保存更改后的环境变量。
+e. 重新启动设备，U-Boot 控制台的波特率将会使用新的设置。
+
+<font color=red>Tips:</font>但是这边我遇到了一个问题，在MobaXterm中修改完波特率要求按下回车键确定，但是切换了MobaXterm的波特率按下回车无效果，一直卡住，后面我使用XCOM完成了修改。
+
+最后发现，MobaXterm对打开的串口设置波特率是没有效果的，需要关闭界面，新建一个终端即可。
+
+### 更改内核中控制台波特率
+
+因为内核中会读取bootargs环境变量，bootargs环境变量中存放了控制台信息。本质上就是更改Uboot中的bootargs环境变量。
+
+假设原来的bootargs为`setenv bootargs 'console=ttymxc0,115200 rw nfsroot=192.168.5.11:/home/bcl/nfs/rootfs ip=192.168.5.9:192.168.5.11:192.168.5.1:255.255.255.0::eth0:off'`
+
+这边很明显能看见控制台为串口1，波特率115200，如果要改成9600波特率只需要在对应位置上更改即可。
+
+### 更改内核中控制台选择
+
+a. 确保你有内核的源代码和编译环境。
+b. 进入内核源代码目录，找到设备树文件 (Device Tree)。一般情况下，该文件的路径是 `arch/arm/boot/dts/<device>.dts`，其中 `<device>` 是设备的名字。
+c. 使用文本编辑器打开设备树文件，查找 `chosen` 节点下的 `stdout-path` 属性。该属性描述了控制台输出设备的路径。
+d. 修改 `stdout-path` 属性中的串口和波特率设置，例如从 `&uart1` 修改为 `&uart2`
+e. 保存并关闭设备树文件，重启设备，在Uboot中更改bootargs中串口的选择。
+
 # 正点原子IMX6ULL应用编程
 
 ## Poky 交叉编译工具链
@@ -415,6 +497,8 @@ AP3216C设备地址为0x1e，在i2c0上
 额外的库sudo apt-get install lsb-core lib32stdc++6
 
 
+
+如果使用可执行文件出现`syntax error: unterminated quoted string`报错，可能是使用了gcc编译器，并没有使用交叉编译器。
 
 
 
@@ -4571,3 +4655,3546 @@ unlocked_ioctl在无大内核锁（BKL）的情况下调用。64位用户程序�
 compat_ioctl是64位系统提供32位ioctl的兼容方法，也在无大内核锁的情况下调用。即如果是32位的用户程序调用64位的kernel，则会调用compat_ioctl。如果驱动程序没有实现compat_ioctl，则用户程序在执行ioctl时会返回错误Not a typewriter。
 
 [linux驱动开发(四)：ioctl()函数_ioctl函数_精致的螺旋线的博客-CSDN博客](https://blog.csdn.net/baidu_38797690/article/details/123690825)
+
+### 编写驱动代码
+
+```c
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/io.h>
+#include <linux/cdev.h>
+#include <linux/device.h>
+#include <linux/of.h>
+#include <linux/of_address.h>
+#include <linux/of_gpio.h>
+#include <linux/atomic.h>
+
+#define TIMER_CNT       1               /* 设备号个数 */
+#define TIMER_NAME      "timer"         /* 名字 */
+
+#define CLOSE_CMD       (_IO(0XEF,0x1)) /* 关闭定时器 */
+#define OPEN_CMD        (_IO(0XEF,0x2)) /* 打开定时器 */
+#define SETPERIOD_CMD   (_IO(0XEF,0x3)) /* 设置定时器周期命令 */
+
+#define LEDOFF          0           /* 关灯 */
+#define LEDON           1           /* 开灯 */
+
+/* led设备结构体 */
+struct timer_dev{
+    dev_t devid;                /* 设备号 */
+    int major;                  /* 主设备号 */
+    int minor;                  /* 次设备号 */
+    struct cdev cdev;           /* cdev */
+    struct class *class;        /* 类 */
+    struct device *device;      /* 设备 */
+    struct device_node *nd;     /* 设备节点 */
+    int led_gpio;               /* led使用的GPIO编号 */
+    atomic_t timeperiod;        /* 定时周期，单位为ms */
+    struct timer_list timer;    /* 定义一个定时器 */
+};
+
+struct timer_dev timerdev; /* timer设备 */
+
+static int timer_open(struct inode *inode, struct file *filp)
+{
+    filp->private_data = &timerdev;   //设置私有属性
+
+    atomic_set(&timerdev.timeperiod,1000); /* 默认周期为1s */
+    //add_timer(&timerdev.timer);
+    mod_timer(&timerdev.timer,jiffies + msecs_to_jiffies(atomic_read(&timerdev.timeperiod)));
+    return 0;
+}
+
+static int timer_close(struct inode *inode, struct file *filp)
+{
+    return 0;
+}
+
+static long timer_unlocked_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
+    struct timer_dev *dev = (struct timer_dev *)filp->private_data;
+
+    switch(cmd)
+    {
+        case CLOSE_CMD:     /* 关闭定时器 */
+            del_timer_sync(&dev->timer);
+            gpio_set_value(timerdev.led_gpio,LEDOFF);
+        case OPEN_CMD:      /* 开启定时器 */
+            mod_timer(&dev->timer,jiffies + msecs_to_jiffies(atomic_read(&dev->timeperiod)));
+        case SETPERIOD_CMD: /* 设置定时器 */
+            atomic_set(&dev->timeperiod,arg);
+            mod_timer(&dev->timer,jiffies + msecs_to_jiffies(atomic_read(&dev->timeperiod)));
+        default:
+            break;
+    }
+
+    return 0;
+}
+
+/* 设备操作函数 */
+static const struct file_operations timer_fops = {
+    .owner   = THIS_MODULE,
+    .open    = timer_open,
+    .release = timer_close,
+    .unlocked_ioctl = timer_unlocked_ioctl,
+};
+
+
+/* 定时器回调函数 */
+void timer_function(unsigned long arg)
+{
+    struct timer_dev *dev = (struct timer_dev *)arg;
+    static int sta = 1;
+    int timerperiod;
+
+    sta = !sta; /* 每次都取反，实现LED翻转 */
+    gpio_set_value(dev->led_gpio,sta);
+
+    /* 重启定时器 */
+    timerperiod = atomic_read(&dev->timeperiod);
+    mod_timer(&dev->timer,jiffies + msecs_to_jiffies(atomic_read(&dev->timeperiod)));
+}
+
+/* 驱动入口函数 */
+static int __init timer_init(void)
+{
+    int ret;
+
+    /* 申请设备号 */
+    timerdev.major = 0;  //由内核分配
+    if(timerdev.major){  //给定设备号
+        timerdev.devid = MKDEV(timerdev.major,0);
+        ret = register_chrdev_region(timerdev.devid,TIMER_CNT,TIMER_NAME);
+    }else{
+        ret = alloc_chrdev_region(&timerdev.devid,0,TIMER_CNT,TIMER_NAME);
+        timerdev.major = MAJOR(timerdev.devid);
+        timerdev.minor = MINOR(timerdev.devid);
+    }
+    printk("timer major = %d,minor = %d\n",timerdev.major,timerdev.minor);
+    if(ret < 0){
+        goto fail_devid;
+    }
+
+    /* 2.添加字符设备 */
+    timerdev.cdev.owner = THIS_MODULE;
+    cdev_init(&timerdev.cdev,&timer_fops);
+    ret = cdev_add(&timerdev.cdev,timerdev.devid,TIMER_CNT);
+    if(ret < 0){
+        goto fail_cdev;
+    }
+
+    /* 自动添加设备节点 */
+    /* 1.添加类 */
+    timerdev.class = class_create(THIS_MODULE,TIMER_NAME);
+    if(IS_ERR(timerdev.class)){
+        ret = PTR_ERR(timerdev.class);
+        goto fail_class;
+    }
+
+    /* 2.添加设备 */
+    timerdev.device = device_create(timerdev.class,NULL,timerdev.devid,NULL,TIMER_NAME);
+    if(IS_ERR(timerdev.device)){
+        ret = PTR_ERR(timerdev.device);
+        goto fail_device;
+    }
+
+    /* 设置LED所使用的GPIO */
+    /* 1.获取设备节点：gpioled */
+    timerdev.nd = of_find_node_by_path("/gpioled");  //设备节点名
+    if(timerdev.nd == NULL){
+        printk("gpioled node can't not found\n");
+        ret = -EINVAL;
+        goto fail_node;
+    }else{
+        printk("gpioled node has been found\n");
+    }
+
+    /* 2.获取设备树中的gpio属性，得到LED的编号 */
+    timerdev.led_gpio = of_get_named_gpio(timerdev.nd,"led-gpio",0);//根据设备树实际命名更改
+    if(timerdev.led_gpio < 0){
+        printk("can't get led-gpio\n");
+        ret = -EINVAL;
+        goto fail_node;
+    }
+    printk("led-gpio num = %d\n",timerdev.led_gpio);
+
+    /* 3.请求gpio */
+    ret = gpio_request(timerdev.led_gpio,"led-gpio");
+    if(ret){
+        printk("can't request led-gpio\n");
+        goto fail_node;
+    }
+
+    /* 4.设置 GPIO1_IO03 为输出，并且输出高电平，默认关闭 LED 灯 */
+    ret = gpio_direction_output(timerdev.led_gpio,1);
+    if(ret < 0){
+        printk("can't set gpio\n");
+        goto fail_setoutput;
+    }
+
+    /* 初始化定时器，设置定时器处理函数，未设置周期，不会激活定时器 */
+    init_timer(&timerdev.timer);
+    timerdev.timer.function = timer_function;
+    timerdev.timer.data = (unsigned long)&timerdev;
+
+    return 0;
+
+fail_setoutput:
+    gpio_free(timerdev.led_gpio);
+fail_node:
+    device_destroy(timerdev.class,timerdev.devid);
+fail_device:
+    class_destroy(timerdev.class);
+fail_class:
+    cdev_del(&timerdev.cdev);
+fail_cdev:
+    unregister_chrdev_region(timerdev.devid,TIMER_CNT);
+fail_devid:
+    return ret;
+}
+
+/* 驱动出口函数 */
+static void __exit timer_exit(void)
+{
+    /* 关闭LED */
+    gpio_set_value(timerdev.led_gpio,LEDOFF);
+    gpio_free(timerdev.led_gpio);
+
+    /* 删除定时器 */
+    del_timer_sync(&timerdev.timer);
+
+    /* 注销字符设备驱动 */
+    cdev_del(&timerdev.cdev);    //删除cdev
+    unregister_chrdev_region(timerdev.devid,TIMER_CNT);    //注销设备号
+
+
+    device_destroy(timerdev.class,timerdev.devid);    //摧毁设备
+    class_destroy(timerdev.class);   //摧毁类
+
+    return;
+}
+
+/* 注册驱动和卸载驱动 */
+module_init(timer_init);
+module_exit(timer_exit);
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("bcl");
+```
+
+```c
+#include <fcntl.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/ioctl.h>
+
+/**
+ * ./timerAPP <filename>    //定时器测试程序
+ * ./timerAPP /dev/timer
+*/
+
+/* 命令值 */
+#define CLOSE_CMD       (_IO(0XEF,0x1)) /* 关闭定时器 */
+#define OPEN_CMD        (_IO(0XEF,0x2)) /* 打开定时器 */
+#define SETPERIOD_CMD   (_IO(0XEF,0x3)) /* 设置定时器周期命令 */
+
+int main(int argc,char *argv[])
+{
+    int fd;
+    int ret;
+    char *filename;
+
+    unsigned int cmd;
+    unsigned int arg;
+    unsigned char str[100];
+
+    /* 参数数量检测 */
+    if (argc != 2)
+    {
+        printf("Error usage\n");
+        return -1;
+    }
+
+    filename = argv[1];
+
+    /* 打开文件 */
+    fd = open(filename,O_RDWR);
+    if(fd < 0){
+        perror("open");
+        return -1;
+    }
+
+    while(1)
+    {
+        printf("Input CMD:");
+        ret = scanf("%d",&cmd);
+        if(ret != 1){       //参数输入错误
+            gets(str);      //防止卡死
+        }
+
+        if(cmd == 1)
+            cmd = CLOSE_CMD;
+        else if(cmd == 2)
+            cmd = OPEN_CMD;
+        else if(cmd == 3){
+            cmd = SETPERIOD_CMD;
+            printf("Input Timer Period:");
+            ret = scanf("%d",&arg);
+
+            if(ret != 1){       //参数输入错误
+                gets(str);      //防止卡死
+            }
+        }
+
+        ioctl(fd,cmd,arg);
+
+    }
+
+    /* 关闭文件 */
+    ret = close(fd);
+    if(ret){
+        perror("close");
+        return -1;
+    }
+    
+    return 0;
+}
+```
+
+## Linux中断实验
+
+### Linux中断API函数
+
+1. 中断号
+
+    每个中断都有一个中断号，通过中断号即可区分不同的中断，Linux内核使用int变量表示中断号
+
+2. request_irq 函数
+
+    request_irq 函数用于申请中断，request_irq 函数可能会导致睡眠，因此不能在中断上下文或者其他禁止睡眠的代码段中使用 request_irq 函 数。request_irq 函数会激活(使能)中断，所以不需要我们手动去使能中断
+
+    ```c
+    int request_irq(unsigned int irq, 
+    				irq_handler_t handler, 
+    				unsigned long flags,
+     				const char *name, 
+    				void *dev)
+    ```
+
+    irq：要申请中断的中断号。 
+
+    handler：中断处理函数，当中断发生以后就会执行此中断处理函数。 
+
+    flags：中断标志，可以在文件 include/linux/interrupt.h 里面查看所有的中断标志。
+
+    name：中断名字，设置以后可以在/proc/interrupts 文件中看到对应的中断名字。 
+
+    dev：如果将 flags 设置为 IRQF_SHARED 的话，dev 用来区分不同的中断，一般情况下将 dev 设置为设备结构体，dev 会传递给中断处理函数 irq_handler_t 的第二个参数。
+
+    返回值：0 中断申请成功，其他负值 中断申请失败，如果返回-EBUSY 的话表示中断已经被申请了。
+
+    |         标志         |                             描述                             |
+    | :------------------: | :----------------------------------------------------------: |
+    |     IRQF_SHARED      | 多个设备共享一个中断线，共享的所有中断都必须指定此标志。 如果使用共享中断的话，request_irq 函数的 dev 参数就是唯一 区分他们的标志。 |
+    |     IRQF_ONESHOT     |                单次中断，中断执行一次就结束。                |
+    |  IRQF_TRIGGER_NONE   |                           无触发。                           |
+    | IRQF_TRIGGER_RISING  |                         上升沿触发。                         |
+    | IRQF_TRIGGER_FALLING |                         下降沿触发。                         |
+    |  IRQF_TRIGGER_HIGH   |                         高电平触发。                         |
+    |   IRQF_TRIGGER_LOW   |                         低电平触发。                         |
+
+3. free_irq 函数
+
+    使用中断的时候需要通过 request_irq 函数申请，使用完成以后就要通过 free_irq 函数释放掉相应的中断。
+
+4. 中断处理函数
+
+    `irqreturn_t (*irq_handler_t) (int, void *)`
+
+    第一个参数是要中断处理函数要相应的中断号。第二个参数是一个指向 void 的指针，也就是个通用指针，需要与 request_irq 函数的 dev 参数保持一致。
+
+5. 中断使能与禁止函数
+
+    `void enable_irq(unsigned int irq) `
+
+    `void disable_irq(unsigned int irq)`
+
+    这两个函数需要等待中断处理函数结束才返回。
+
+​	`void disable_irq_nosync(unsigned int irq)`函数调用以后立即返回，不会等待当前中断处理程序执行完毕。
+
+​	`local_irq_enable() local_irq_disable()`关闭或打开全局中断
+
+​	`local_irq_save(flags) local_irq_restore(flags)`关闭或打开全局中断，并且将中断状态保存在 flags 中
+
+### 上半部与下半部
+
+中断处理函数一定要快点执行完毕，越短越好
+
+上半部：上半部就是中断处理函数，那些处理过程比较快，不会占用很长时间的处理就可以放在上半部完成。 
+
+下半部：如果中断处理过程比较耗时，那么就将这些比较耗时的代码提出来，交给下半部去执行，这样中断处理函数就会快进快出。
+
+#### 软中断
+
+一开始 Linux 内核提供了“bottom half”机制来实现下半部，简称“BH”。已经被抛弃了。
+
+Linux 内核使用结构体 softirq_action 表示软中断， softirq_action 结构体定义在文件 include/linux/interrupt.h 中
+
+```c
+enum
+{
+ HI_SOFTIRQ=0, /* 高优先级软中断 */
+ TIMER_SOFTIRQ, /* 定时器软中断 */
+ NET_TX_SOFTIRQ, /* 网络数据发送软中断 */
+ NET_RX_SOFTIRQ, /* 网络数据接收软中断 */
+ BLOCK_SOFTIRQ, 
+ BLOCK_IOPOLL_SOFTIRQ, 
+ TASKLET_SOFTIRQ, /* tasklet 软中断 */
+ SCHED_SOFTIRQ, /* 调度软中断 */
+ HRTIMER_SOFTIRQ, /* 高精度定时器软中断 */
+ RCU_SOFTIRQ, /* RCU 软中断 */
+ NR_SOFTIRQS
+};
+```
+
+一共有 10 个软中断，softirq_action 结构体中的 action 成员变量就是软中断的服务函数
+
+要使用软中断，必须先使用 open_softirq 函数注册对应的软中断处理函数
+
+`void open_softirq(int nr, void (*action)(struct softirq_action *))`
+
+注册好软中断以后需要通过 raise_softirq 函数触发
+
+`void raise_softirq(unsigned int nr)`
+
+软中断必须在编译的时候静态注册！！Linux 内核使用 softirq_init 函数初始化软中断， softirq_init 函数定义在 kernel/softirq.c 文件里面
+
+#### tasklet
+
+tasklet 是利用软中断来实现的另外一种下半部机制，在软中断和 tasklet 之间，建议大家使用 tasklet。
+
+```c
+struct tasklet_struct
+{
+	struct tasklet_struct *next; /* 下一个 tasklet */
+	unsigned long state; /* tasklet 状态 */
+	atomic_t count; /* 计数器，记录对 tasklet 的引用数 */
+	void (*func)(unsigned long); /* tasklet 执行的函数 */
+	unsigned long data; /* 函数 func 的参数 */
+};
+```
+
+如果要使用 tasklet，必须先定义一个 tasklet，然后使用 tasklet_init 函数初始化 tasklet
+
+也可以使用宏 DECLARE_TASKLET 来一次性完成 tasklet 的定义和初始化
+
+`DECLARE_TASKLET(name, func, data)`
+
+在上半部，也就是中断处理函数中调用 tasklet_schedule 函数就能使 tasklet 在合适的时间运行
+
+```c
+//使用tasklet示例
+/* 定义 taselet */
+struct tasklet_struct testtasklet;
+/* tasklet 处理函数 */
+void testtasklet_func(unsigned long data)
+{
+ /* tasklet 具体处理内容 */
+}
+/* 中断处理函数 */
+irqreturn_t test_handler(int irq, void *dev_id)
+{
+ ......
+ /* 调度 tasklet */
+ tasklet_schedule(&testtasklet);
+ ......
+}
+/* 驱动入口函数 */
+static int __init xxxx_init(void)
+{
+ ......
+ /* 初始化 tasklet */
+tasklet_init(&testtasklet, testtasklet_func, data);
+ /* 注册中断处理函数 */
+ request_irq(xxx_irq, test_handler, 0, "xxx", &xxx_dev);
+ ......
+}
+```
+
+#### 工作队列
+
+工作队列是另外一种下半部执行方式，工作队列在进程上下文执行，工作队列将要推后的工作交给一个内核线程去执行。
+
+Linux 内核使用 work_struct 结构体表示一个工作。
+
+这些工作组织成工作队列，工作队列使用 workqueue_struct 结构体表示。
+
+```c
+//工作队列示例
+/* 定义工作(work) */
+struct work_struct testwork;
+/* work 处理函数 */
+void testwork_func_t(struct work_struct *work);
+{
+ /* work 具体处理内容 */
+}
+/* 中断处理函数 */
+irqreturn_t test_handler(int irq, void *dev_id)
+{
+ ......
+ /* 调度 work */
+ schedule_work(&testwork);
+ ......
+}
+/* 驱动入口函数 */
+static int __init xxxx_init(void)
+{
+ ......
+ /* 初始化 work */
+ INIT_WORK(&testwork, testwork_func_t);
+ /* 注册中断处理函数 */
+ request_irq(xxx_irq, test_handler, 0, "xxx", &xxx_dev);
+ ......
+}
+```
+
+### 设备树中断信息节点
+
+打开 imx6ull.dtsi 文件，其中的 intc 节点就是 I.MX6ULL 的中断控制器节点
+
+```
+intc: interrupt-controller@00a01000 {
+	compatible = "arm,cortex-a7-gic";
+	#interrupt-cells = <3>;
+	interrupt-controller;
+	reg = 	<0x00a01000 0x1000>,
+			<0x00a02000 0x100>;
+};
+```
+
+\#interrupt-cells描述了interrupts属性的cells大小，对于ARM的GIC一共是三个cells
+
+第一个 cells：中断类型，0 表示 SPI 中断，1 表示 PPI 中断。 
+
+第二个 cells：中断号，对于 SPI 中断来说中断号的范围为 0~987，对于 PPI 中断来说中断 号的范围为 0~15。 
+
+第三个 cells：标志，bit[3:0]表示中断触发类型，为 1 的时候表示上升沿触发，为 2 的时候 表示下降沿触发，为 4 的时候表示高电平触发，为 8 的时候表示低电平触发。bit[15:8]为 PPI 中 断的 CPU 掩码。
+
+```
+gpio5: gpio@020ac000 {
+	compatible = "fsl,imx6ul-gpio", "fsl,imx35-gpio";
+	reg = <0x020ac000 0x4000>;
+	interrupts = <GIC_SPI 74 IRQ_TYPE_LEVEL_HIGH>,
+				<GIC_SPI 75 IRQ_TYPE_LEVEL_HIGH>;
+	gpio-controller;
+	#gpio-cells = <2>;
+	interrupt-controller;
+	#interrupt-cells = <2>;
+};
+```
+
+对于 gpio5 来说一共有两条信息，中断类型都是 SPI，触发电平都是 IRQ_TYPE_LEVEL_HIGH。
+
+不同之处在于中断源，一个是 74，一个是 75。其中 74 对应 GPIO5_IO00~GPIO5_IO15 这低 16 个 IO，75 对应 GPIO5_IO16~GPIOI5_IO31 这高 16 位 IO。
+
+
+
+fxls8471 是 NXP 官方的 6ULL 开发板上的一个磁力计芯片，fxls8471 有一个中断引脚链接到了 I.MX6ULL 的 SNVS_TAMPER0 因脚上，这个引脚可以复用为 GPIO5_IO00。
+
+```
+fxls8471@1e {
+	compatible = "fsl,fxls8471";
+	reg = <0x1e>;
+	position = <0>;
+	interrupt-parent = <&gpio5>;
+	interrupts = <0 8>;
+};
+```
+
+interrupt-parent 属性指定父中断使用 gpio5 作为中断控制器。
+
+interrupts 设置中断信息，0 表示 GPIO5_IO00，8 表示低电平触发。
+
+这里为什么是8呢？可以查看内核文件\Documentation\devicetree\bindings\gpio\gpio-mxs.txt
+
+#interrupt-cells : Should be 2.  The first cell is the GPIO number.
+The second cell bits[3:0] is used to specify trigger type and level flags:
+    1 = low-to-high edge triggered.
+    2 = high-to-low edge triggered.
+    4 = active high level-sensitive.
+    8 = active low level-sensitive.
+
+### 获取中断号
+
+```c
+//位于Linux/of_irq.h中
+unsigned int irq_of_parse_and_map(struct device_node *dev,
+ 								int index)
+```
+
+dev：设备节点。 
+
+index：索引号，interrupts 属性可能包含多条中断信息，通过 index 指定要获取的信息。 
+
+返回值：中断号。
+
+```c
+int gpio_to_irq(unsigned int gpio)
+```
+
+如果使用 GPIO 的话，可以使用 gpio_to_irq 函数来获取 gpio 对应的中断号。
+
+gpio：要获取的 GPIO 编号。 返回值：GPIO 对应的中断号。
+
+### Linux container_of宏
+
+```c
+#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
+#define  container_of(ptr, type, member) ({    \
+     const typeof( ((type *)0)->member ) *__mptr = (ptr); \
+     (type *)( (char *)__mptr - offsetof(type,member) );})
+```
+
+根据结构体某一成员的地址，获取这个结构体的首地址。根据宏定义，我们可以看到，这个宏有三个参数，它们分别是：
+
+- type：结构体类型
+- member：结构体内的成员
+- ptr：结构体内成员member的地址
+
+[嵌入式C语言自我修养 04：Linux 内核第一宏：container_of - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/55768425)
+
+### 修改设备树
+
+在key节点下增加两行
+
+interrupt-parent = <&gpio1>; 
+
+interrupts = <18 IRQ_TYPE_EDGE_BOTH>; /* FALLING RISING */
+
+设置 KEY0 的 GPIO 中断控制器为 gpio1，
+
+第一个 cells 的 18 表示 GPIO1 组的 18 号 IO。第二个 cells 表示IRQ_TYPE_EDGE_BOTH 表示上升沿和下降沿同时有效。定义位于include/linux/irq.h
+
+### 编写驱动代码
+
+```c
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/io.h>
+#include <linux/cdev.h>
+#include <linux/device.h>
+#include <linux/of.h>
+#include <linux/of_address.h>
+#include <linux/of_gpio.h>
+#include <linux/of_irq.h>
+#include <linux/ide.h>
+
+#define IMX6UIRQ_CNT     1                  /* 设备号个数 */
+#define IMX6UIRQ_NAME    "imx6uirq"         /* 名字 */
+
+/* 定义按键值 */
+#define KEY0VALUE         0x00              /* 按键值 */
+#define INVAKEY           0xff              /* 无效按键值 */
+#define KEY_NUM           1                 /* 按键数量 */
+
+/* 中断IO描述结构体 */
+struct irq_keydesc{
+    int gpio;                               /* key使用的GPIO编号 */
+    int irqnum;                             /* 中断号 */
+    unsigned char value;                    /* 按键对应的键值 */
+    char name[10];                          /* 名字 */
+    irqreturn_t (*handler)(int,void *);     /* 中断服务函数 */
+};
+
+/* imx6uirq设备结构体 */
+struct imx6uirq_dev{
+    dev_t devid;                            /* 设备号 */
+    int major;                              /* 主设备号 */
+    int minor;                              /* 次设备号 */
+
+    struct cdev cdev;                       /* cdev */
+    struct class *class;                    /* 类 */
+    struct device *device;                  /* 设备 */
+    struct device_node *nd;                 /* 设备节点 */
+
+    atomic_t keyvalue;                      /* 按键值 */
+    atomic_t releasekey;                    /* 标记是否完成一次完成的按键 */
+    struct irq_keydesc irqkeydesc[KEY_NUM]; /* 按键描述数组 */
+    unsigned char curkeynum;                /* 当前按键号 */
+
+    struct timer_list timer;                /* 定义一个定时器 */
+};
+
+struct imx6uirq_dev imx6uirq; /* irq设备 */
+
+/* key0中断服务函数 */
+static irqreturn_t key0_handler(int irq,void *dev_id)
+{
+    struct imx6uirq_dev *dev = (struct imx6uirq_dev *)dev_id;
+
+    dev->curkeynum = 0; //当前为0号按键
+    dev->timer.data = (volatile unsigned long)dev_id;   //将设备结构体传入定时器服务函数
+    mod_timer(&dev->timer,jiffies + msecs_to_jiffies(10));  //延时10ms
+
+    return IRQ_RETVAL(IRQ_HANDLED);
+}
+
+/* 定时器服务函数 */
+void timer_function(unsigned long arg)
+{
+    unsigned char value;
+    unsigned char num;
+    struct irq_keydesc *keydesc;
+    struct imx6uirq_dev *dev = (struct imx6uirq_dev *)arg;  //类型变换
+
+    num = dev->curkeynum;
+    keydesc = &dev->irqkeydesc[num];
+
+    value = gpio_get_value(keydesc->gpio);  //读取io值
+    if(value == 0){ //按下按键
+        atomic_set(&dev->keyvalue,keydesc->value);
+    }else{          //松开按键
+        atomic_set(&dev->keyvalue,0x80|keydesc->value);
+        atomic_set(&dev->releasekey,1); //标记一次按键完成
+    }
+}
+
+/* 按键初始化函数 */
+static int keyio_init(void)
+{
+    u8 i = 0;
+    int ret = 0;
+
+    /* 获取设备节点 */
+    imx6uirq.nd = of_find_node_by_path("/key");
+    if(imx6uirq.nd == NULL){
+        printk("key node not find!\n");
+        return -EINVAL;
+    }
+
+    /* 提取GPIO */
+    for(i = 0;i < KEY_NUM;i++){
+        imx6uirq.irqkeydesc[i].gpio = of_get_named_gpio(imx6uirq.nd,"key-gpio",i);
+        if(imx6uirq.irqkeydesc[i].gpio < 0){
+            printk("can't get key%d\n",i);
+        }
+    }
+
+    /* 初始化 key 所使用的 IO，并且设置成中断模式 */
+    for(i = 0;i < KEY_NUM;i++){
+        memset(imx6uirq.irqkeydesc[i].name,0,sizeof(imx6uirq.irqkeydesc[i].name));
+        sprintf(imx6uirq.irqkeydesc[i].name,"KEY%d",i);
+
+        //请求gpio
+        gpio_request(imx6uirq.irqkeydesc[i].gpio,imx6uirq.irqkeydesc[i].name);
+        //指定为输入模式
+        gpio_direction_input(imx6uirq.irqkeydesc[i].gpio);
+        //获取中断号
+        imx6uirq.irqkeydesc[i].irqnum = irq_of_parse_and_map(imx6uirq.nd,i);
+#if 0    
+        imx6uirq.irqkeydesc[i].irqnum = gpio_to_irq(imx6uirq.irqkeydesc[i].gpio);
+#endif
+
+        printk("key%d:gpio=%d,irqmun=%d\n",i,
+                                imx6uirq.irqkeydesc[i].gpio,
+                                imx6uirq.irqkeydesc[i].irqnum);
+    }
+
+    /* 申请中断 */
+    //指定对应的中断服务函数
+    imx6uirq.irqkeydesc[0].handler = key0_handler;
+    imx6uirq.irqkeydesc[0].value = KEY0VALUE;
+
+    for(i = 0;i < KEY_NUM;i++){
+        ret = request_irq(imx6uirq.irqkeydesc[i].irqnum,
+                          imx6uirq.irqkeydesc[i].handler,
+                          IRQF_TRIGGER_FALLING|IRQF_TRIGGER_RISING,
+                          imx6uirq.irqkeydesc[i].name,&imx6uirq);
+        if(ret < 0){
+            printk("irq %d request failed!\n",imx6uirq.irqkeydesc[i].irqnum);
+            return -EFAULT;
+        }
+    }
+
+    /* 创建定时器 */
+    init_timer(&imx6uirq.timer);
+    imx6uirq.timer.function = timer_function;
+
+    return 0;
+}
+
+
+static int imx6uirq_open(struct inode *inode, struct file *filp)
+{
+    filp->private_data = &imx6uirq;   //设置私有属性
+    return 0;
+}
+
+static int imx6uirq_close(struct inode *inode, struct file *filp)
+{
+    return 0;
+}
+
+static ssize_t imx6uirq_read(struct file *filp, char __user *buf, size_t count, loff_t *ppos)
+{
+    int ret = 0;
+    unsigned char keyvalue = 0;
+    unsigned char releasekey = 0;
+    struct imx6uirq_dev *dev = (struct imx6uirq_dev *)filp->private_data;
+
+    keyvalue = atomic_read(&dev->keyvalue);
+    releasekey = atomic_read(&dev->releasekey);
+
+    //如果按键按下
+    if(releasekey){
+        if(keyvalue & 0x80){
+            keyvalue &= ~0x80;
+            ret = copy_to_user(buf,&keyvalue,sizeof(keyvalue));
+        }else{
+            goto data_error;
+        }
+
+        atomic_set(&dev->releasekey,0); //标志位清零
+    }else{
+        goto data_error;
+    }
+
+    return ret;
+
+data_error:
+    return -EINVAL;
+}
+
+/* 设备操作函数 */
+static const struct file_operations imx6uirq_fops = {
+    .owner   = THIS_MODULE,
+    .open    = imx6uirq_open,
+    .release = imx6uirq_close,
+    .read    = imx6uirq_read,
+};
+
+/* 驱动入口函数 */
+static int __init imx6uirq_init(void)
+{
+    int ret;
+
+    /* 申请设备号 */
+    imx6uirq.major = 0;  //由内核分配
+    if(imx6uirq.major){  //给定设备号
+        imx6uirq.devid = MKDEV(imx6uirq.major,0);
+        ret = register_chrdev_region(imx6uirq.devid,IMX6UIRQ_CNT,IMX6UIRQ_NAME);
+    }else{
+        ret = alloc_chrdev_region(&imx6uirq.devid,0,IMX6UIRQ_CNT,IMX6UIRQ_NAME);
+        imx6uirq.major = MAJOR(imx6uirq.devid);
+        imx6uirq.minor = MINOR(imx6uirq.devid);
+    }
+    printk("key major = %d,minor = %d\n",imx6uirq.major,imx6uirq.minor);
+    if(ret < 0){
+        goto fail_devid;
+    }
+
+    /* 2.添加字符设备 */
+    imx6uirq.cdev.owner = THIS_MODULE;
+    cdev_init(&imx6uirq.cdev,&imx6uirq_fops);
+    ret = cdev_add(&imx6uirq.cdev,imx6uirq.devid,IMX6UIRQ_CNT);
+    if(ret < 0){
+        goto fail_cdev;
+    }
+
+    /* 自动添加设备节点 */
+    /* 1.添加类 */
+    imx6uirq.class = class_create(THIS_MODULE,IMX6UIRQ_NAME);
+    if(IS_ERR(imx6uirq.class)){
+        ret = PTR_ERR(imx6uirq.class);
+        goto fail_class;
+    }
+
+    /* 2.添加设备 */
+    imx6uirq.device = device_create(imx6uirq.class,NULL,imx6uirq.devid,NULL,IMX6UIRQ_NAME);
+    if(IS_ERR(imx6uirq.device)){
+        ret = PTR_ERR(imx6uirq.device);
+        goto fail_device;
+    }
+
+    /* 初始化按键，初始化原子变量 */
+    atomic_set(&imx6uirq.keyvalue,INVAKEY);
+    atomic_set(&imx6uirq.releasekey,0);
+    keyio_init();
+
+    return 0;
+
+fail_device:
+    class_destroy(imx6uirq.class);
+fail_class:
+    cdev_del(&imx6uirq.cdev);
+fail_cdev:
+    unregister_chrdev_region(imx6uirq.devid,IMX6UIRQ_CNT);
+fail_devid:
+    return ret;
+}
+
+/* 驱动出口函数 */
+static void __exit imx6uirq_exit(void)
+{
+    u8 i = 0;
+    /* 删除定时器 */
+    del_timer_sync(&imx6uirq.timer);
+
+    /* 释放中断和gpio */
+    for(i = 0;i < KEY_NUM;i++){
+        free_irq(imx6uirq.irqkeydesc[i].irqnum,&imx6uirq);
+        gpio_free(imx6uirq.irqkeydesc[i].gpio);
+    }
+
+    /* 注销字符设备驱动 */
+    cdev_del(&imx6uirq.cdev);    //删除cdev
+    unregister_chrdev_region(imx6uirq.devid,IMX6UIRQ_CNT);    //注销设备号
+    device_destroy(imx6uirq.class,imx6uirq.devid);    //摧毁设备
+    class_destroy(imx6uirq.class);   //摧毁类
+
+    return;
+}
+
+/* 注册驱动和卸载驱动 */
+module_init(imx6uirq_init);
+module_exit(imx6uirq_exit);
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("bcl");
+```
+
+```c
+#include <fcntl.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+
+/**
+ * ./imx6uirqAPP <filename> 
+ * ./imx6uirqAPP /dev/imx6uirq
+*/
+
+int main(int argc,char *argv[])
+{
+    int fd;
+    int ret;
+    char *filename;
+    unsigned char keyvalue;
+
+    /* 参数数量检测 */
+    if (argc != 2)
+    {
+        printf("Error usage\n");
+        return -1;
+    }
+
+    filename = argv[1];
+
+    /* 打开文件 */
+    fd = open(filename,O_RDWR);
+    if(fd < 0){
+        perror("open");
+        return -1;
+    }
+
+    /* 循环读取按键值数据！ */
+    while(1)
+    {
+        ret = read(fd,&keyvalue,sizeof(keyvalue));
+        if(ret < 0){
+
+        }else{
+            printf("key value = %#X\n",keyvalue);
+        }
+    }
+
+    /* 关闭文件 */
+    ret = close(fd);
+    if(ret){
+        perror("close");
+        return -1;
+    }
+    
+    return 0;
+}
+```
+
+## Linux阻塞和非阻塞IO实验
+
+### 阻塞与非阻塞
+
+阻塞式 IO 就会将应用程序对应的线程挂起，直到设备资源可以获取为止。
+
+非阻塞 IO 应用程序对应的线程不会挂起，它要么一直轮询等待，直到设备资源可以使用，要么就直接放弃。
+
+在open函数中添加参数O_NONBLOCK即可以非阻塞的方式打开设备。
+
+### 等待队列
+
+#### 等待队列头
+
+阻塞访问，可以在设备文件不可操作时进入休眠态，将CPU让出。
+
+Linux 内核提供了等待队列(wait queue)来实现阻塞进程的唤醒工作，如果我们要在驱动中使用等待队列，必须创建并初始化一个等待队列头。
+
+等待队列头使用结构体 wait_queue_head_t 表示，在文件 include/linux/wait.h中。
+
+使用`void init_waitqueue_head(wait_queue_head_t *q)`初始化等待队列头，或者使用DECLARE_WAIT_QUEUE_HEAD一次性完成队列头的定义初始化。
+
+#### 等待队列项
+
+每个访问设备的进程都是一个队列项，当设备不可用的时候就要将这些进程对应的等待队列项添加到等待队列里面。结构体 wait_queue_t 表示等待队列项。
+
+使用宏 DECLARE_WAITQUEUE 定义并初始化一个等待队列项，位于linux/wait.h中。
+
+`DECLARE_WAITQUEUE(name, tsk)`其中name 就是等待队列项的名字，tsk 表示这个等待队列项属于哪个任务(进程)，一般设置为 current。
+
+#### 将队列项添加/移除等待队列头
+
+```c
+void add_wait_queue(wait_queue_head_t *q, 
+ 					wait_queue_t *wait)
+void remove_wait_queue(wait_queue_head_t *q, 
+					wait_queue_t *wait)
+```
+
+函数参数和返回值含义如下： 
+
+q：等待队列项要加入的等待队列头。 
+
+wait：要加入的等待队列项。
+
+#### 等待唤醒
+
+```c
+void wake_up(wait_queue_head_t *q)
+void wake_up_interruptible(wait_queue_head_t *q)
+```
+
+两个函数的区别在于能否唤醒非中断状态的进程。
+
+wake_up 函数可以唤醒处于 TASK_INTERRUPTIBLE 和 TASK_UNINTERRUPTIBLE 状态的进程。
+
+wake_up_interruptible 函数只能唤醒处于 TASK_INTERRUPTIBLE 状态的进程。
+
+#### 等待事件
+
+等待唤醒是主动唤醒的方式，也可以设置等待队列等待某个事件，满足事件后就会自动唤醒进程。
+
+|                           函数                            |                             描述                             |
+| :-------------------------------------------------------: | :----------------------------------------------------------: |
+|                 wait_event(wq, condition)                 | 等待以 wq 为等待队列头的等待队列被唤醒，前提是 condition 条件必须满足(为真)，否则一直阻塞。此函数会将进程设置为 TASK_UNINTERRUPTIBLE 状态 |
+|        wait_event_timeout(wq, condition, timeout)         | 功能和 wait_event 类似，但是此函数可以添加超时时间，以 jiffies 为单位。此函数有返回值，如果返回 0 的话表示超时时间到，而且 condition 为假。为 1 的话表示 condition 为真，也就是条件满足了。 |
+|          wait_event_interruptible(wq, condition)          | 与 wait_event 函数类似，但是此函数将进程设置为 TASK_INTERRUPTIBLE，就是可以被信号打断。 |
+| wait_event_interruptible_timeout(wq,  condition, timeout) | 与 wait_event_timeout 函数类似，此函数也将进程设置为 TASK_INTERRUPTIBLE，可以被信号打断。 |
+
+### 轮询
+
+应用程序通过 select、epoll 或 poll 函数来 查询设备是否可以操作，如果可以操作的话就从设备读取或者向设备写入数据。当应用程序调 用 select、epoll 或 poll 函数的时候设备驱动程序中的 poll 函数就会执行，因此需要在设备驱动 程序中编写 poll 函数。
+
+#### select函数
+
+```c
+int select(int nfds, 
+	fd_set *readfds, 
+	fd_set *writefds,
+	fd_set *exceptfds, 
+	struct timeval *timeout)
+```
+
+nfds：所要监视的这三类文件描述集合中，最大文件描述符加 1。
+
+readfds、writefds 和 exceptfds：这三个指针指向描述符集合，读、写、异常。fd_set 类型变量的每一个位都代表了一个文件描述符。
+
+```c
+void FD_ZERO(fd_set *set)			//所有位清零
+void FD_SET(int fd, fd_set *set)	//某个位置置1
+void FD_CLR(int fd, fd_set *set)	//某个位置清零
+int FD_ISSET(int fd, fd_set *set)	//测试一个文件是否属于某个集合
+```
+
+timeout：超时时间使用结构体 timeval
+
+```c
+void main(void)
+{
+    int ret, fd; /* 要监视的文件描述符 */
+    fd_set readfds; /* 读操作文件描述符集 */
+    struct timeval timeout; /* 超时结构体 */
+
+    fd = open("dev_xxx", O_RDWR | O_NONBLOCK); /* 非阻塞式访问 */
+
+    FD_ZERO(&readfds); /* 清除 readfds */
+    FD_SET(fd, &readfds); /* 将 fd 添加到 readfds 里面 */
+
+    /* 构造超时时间 */
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 500000; /* 500ms */
+
+    ret = select(fd + 1, &readfds, NULL, NULL, &timeout);
+    switch (ret) {
+    case 0: /* 超时 */
+        printf("timeout!\r\n");
+        break;
+    case -1: /* 错误 */
+        printf("error!\r\n");
+        break;
+    default: /* 可以读取数据 */
+        if(FD_ISSET(fd, &readfds)) { /* 判断是否为 fd 文件描述符 */
+        /* 使用 read 函数读取数据 */
+        }
+        break;
+    } 
+ }
+```
+
+#### poll函数
+
+在单个线程中，select 函数能够监视的文件描述符数量有最大的限制，一般为 1024，可以修改内核将监视的文件描述符数量改大，但是这样会降低效率！这个时候就可以使用 poll 函数，poll函数没有最大文件描述符的限制。
+
+```c
+int poll(struct pollfd *fds, 
+ 		nfds_t nfds, 
+ 		int timeout)
+```
+
+fds：要监视的文件描述符集合以及要监视的事件,为一个数组，数组元素都是结构体 pollfd 类型的，pollfd 结构体如下所示：
+
+```c
+struct pollfd {
+	int fd; /* 文件描述符 */
+	short events; /* 请求的事件 */
+ 	short revents; /* 返回的事件 */
+};
+```
+
+nfds：poll 函数要监视的文件描述符数量。 
+
+timeout：超时时间，单位为 ms。
+
+```c
+void main(void)
+{
+    int ret; 
+    int fd; /* 要监视的文件描述符 */
+    struct pollfd fds; 
+
+    fd = open(filename, O_RDWR | O_NONBLOCK); /* 非阻塞式访问 */
+
+    /* 构造结构体 */
+    fds.fd = fd;
+    fds.events = POLLIN; /* 监视数据是否可以读取 */
+    ret = poll(&fds, 1, 500); /* 轮询文件是否可操作，超时 500ms */
+    
+    if (ret) { /* 数据有效 */
+        ......
+        /* 读取数据 */
+        ......
+    } else if (ret == 0) { /* 超时 */
+        ......
+    } else if (ret < 0) { /* 错误 */
+        ......
+    }
+}
+```
+
+#### epoll函数
+
+传统的 selcet 和 poll 函数都会随着所监听的 fd 数量的增加，出现效率低下的问题。epoll 就是为处理大并发而准备的。
+
+需要先使用 epoll_create 函数创建一个 epoll 句柄。
+
+```c
+int epoll_create(int size)
+```
+
+size：从 Linux2.6.8 开始此参数已经没有意义了，随便填写一个大于 0 的值就可以。
+
+
+
+epoll 句柄创建成功以后使用 epoll_ctl 函数向其中添加要监视的文件描述符以及监视的事 件，epoll_ctl 函数原型如下所示：
+
+```c
+int epoll_ctl(int epfd, 
+ 	int op, 
+ 	int fd,
+ 	struct epoll_event *event)
+```
+
+epfd：要操作的 epoll 句柄，也就是使用 epoll_create 函数创建的 epoll 句柄。 
+
+op：表示要对 epfd(epoll 句柄)进行的操作，可以设置为：
+
+EPOLL_CTL_ADD 向 epfd 添加文件参数 fd 表示的描述符。 
+
+EPOLL_CTL_MOD 修改参数 fd 的 event 事件。 
+
+EPOLL_CTL_DEL 从 epfd 中删除 fd 描述符。
+
+fd：要监视的文件描述符。 
+
+event：要监视的事件类型，为 epoll_event 结构体类型指针
+
+
+
+一切都设置好以后应用程序就可以通过 epoll_wait 函数来等待事件的发生
+
+```c
+int epoll_wait(int epfd, 
+			struct epoll_event *events,
+			int maxevents, 
+			int timeout)
+```
+
+epfd：要等待的 epoll。 
+
+events：指向 epoll_event 结构体的数组，当有事件发生的时候 Linux 内核会填写 events，调用者可以根据 events 判断发生了哪些事件。 
+
+maxevents：events 数组大小，必须大于 0。 
+
+timeout：超时时间，单位为 ms。 返回值：0，超时；-1，错误；其他值，准备就绪的文件描述符数量。
+
+### Linux驱动下的poll操作函数
+
+当应用程序调用 select 或 poll 函数来对驱动程序进行非阻塞访问的时候，驱动程序 file_operations 操作集中的 poll 函数就会执行。
+
+```c
+unsigned int (*poll) (struct file *filp, struct poll_table_struct *wait)
+```
+
+filp：要打开的设备文件(文件描述符)。 
+
+wait：结构体 poll_table_struct 类型指针，由应用程序传递进来的。一般将此参数传递给 poll_wait 函数。 
+
+返回值：向应用程序返回设备或者资源状态
+
+
+
+我们需要在驱动程序的 poll 函数中调用 poll_wait 函数，将应用程序添加到 poll_table 中。
+
+```c
+void poll_wait(struct file * filp, wait_queue_head_t * wait_address, poll_table *p)
+```
+
+参数 wait_address 是要添加到 poll_table 中的等待队列头，参数 p 就是 poll_table，就是 file_operations 中 poll 函数的 wait 参数。
+
+### 阻塞IO实验
+
+#### 编写驱动代码
+
+```c
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/io.h>
+#include <linux/cdev.h>
+#include <linux/device.h>
+#include <linux/of.h>
+#include <linux/of_address.h>
+#include <linux/of_gpio.h>
+#include <linux/of_irq.h>
+#include <linux/ide.h>
+#include <linux/wait.h>
+
+#define IMX6UIRQ_CNT     1                  /* 设备号个数 */
+#define IMX6UIRQ_NAME    "blockio"          /* 名字 */
+
+/* 定义按键值 */
+#define KEY0VALUE         0x00              /* 按键值 */
+#define INVAKEY           0xff              /* 无效按键值 */
+#define KEY_NUM           1                 /* 按键数量 */
+
+/* 中断IO描述结构体 */
+struct irq_keydesc{
+    int gpio;                               /* key使用的GPIO编号 */
+    int irqnum;                             /* 中断号 */
+    unsigned char value;                    /* 按键对应的键值 */
+    char name[10];                          /* 名字 */
+    irqreturn_t (*handler)(int,void *);     /* 中断服务函数 */
+};
+
+/* imx6uirq设备结构体 */
+struct imx6uirq_dev{
+    dev_t devid;                            /* 设备号 */
+    int major;                              /* 主设备号 */
+    int minor;                              /* 次设备号 */
+
+    struct cdev cdev;                       /* cdev */
+    struct class *class;                    /* 类 */
+    struct device *device;                  /* 设备 */
+    struct device_node *nd;                 /* 设备节点 */
+
+    atomic_t keyvalue;                      /* 按键值 */
+    atomic_t releasekey;                    /* 标记是否完成一次完成的按键 */
+    struct irq_keydesc irqkeydesc[KEY_NUM]; /* 按键描述数组 */
+    unsigned char curkeynum;                /* 当前按键号 */
+
+    struct timer_list timer;                /* 定义一个定时器 */
+
+    wait_queue_head_t   r_wait;             /* 读等待队列头 */
+};
+
+struct imx6uirq_dev imx6uirq; /* irq设备 */
+
+/* key0中断服务函数 */
+static irqreturn_t key0_handler(int irq,void *dev_id)
+{
+    struct imx6uirq_dev *dev = (struct imx6uirq_dev *)dev_id;
+
+    dev->curkeynum = 0; //当前为0号按键
+    dev->timer.data = (volatile unsigned long)dev_id;   //将设备结构体传入定时器服务函数
+    mod_timer(&dev->timer,jiffies + msecs_to_jiffies(10));  //延时10ms
+
+    return IRQ_RETVAL(IRQ_HANDLED);
+}
+
+/* 定时器服务函数 */
+void timer_function(unsigned long arg)
+{
+    unsigned char value;
+    unsigned char num;
+    struct irq_keydesc *keydesc;
+    struct imx6uirq_dev *dev = (struct imx6uirq_dev *)arg;  //类型变换
+
+    num = dev->curkeynum;
+    keydesc = &dev->irqkeydesc[num];
+
+    value = gpio_get_value(keydesc->gpio);  //读取io值
+    if(value == 0){ //按下按键
+        atomic_set(&dev->keyvalue,keydesc->value);
+    }else{          //松开按键
+        atomic_set(&dev->keyvalue,0x80|keydesc->value);
+        atomic_set(&dev->releasekey,1); //标记一次按键完成
+    }
+
+    /* 唤醒进程 */
+    if(atomic_read(&dev->releasekey)){  //完成一次按键过程
+        wake_up_interruptible(&dev->r_wait);
+    }
+}
+
+/* 按键初始化函数 */
+static int keyio_init(void)
+{
+    u8 i = 0;
+    int ret = 0;
+
+    /* 获取设备节点 */
+    imx6uirq.nd = of_find_node_by_path("/key");
+    if(imx6uirq.nd == NULL){
+        printk("key node not find!\n");
+        return -EINVAL;
+    }
+
+    /* 提取GPIO */
+    for(i = 0;i < KEY_NUM;i++){
+        imx6uirq.irqkeydesc[i].gpio = of_get_named_gpio(imx6uirq.nd,"key-gpio",i);
+        if(imx6uirq.irqkeydesc[i].gpio < 0){
+            printk("can't get key%d\n",i);
+        }
+    }
+
+    /* 初始化 key 所使用的 IO，并且设置成中断模式 */
+    for(i = 0;i < KEY_NUM;i++){
+        memset(imx6uirq.irqkeydesc[i].name,0,sizeof(imx6uirq.irqkeydesc[i].name));
+        sprintf(imx6uirq.irqkeydesc[i].name,"KEY%d",i);
+
+        //请求gpio
+        gpio_request(imx6uirq.irqkeydesc[i].gpio,imx6uirq.irqkeydesc[i].name);
+        //指定为输入模式
+        gpio_direction_input(imx6uirq.irqkeydesc[i].gpio);
+        //获取中断号
+        imx6uirq.irqkeydesc[i].irqnum = irq_of_parse_and_map(imx6uirq.nd,i);
+#if 0    
+        imx6uirq.irqkeydesc[i].irqnum = gpio_to_irq(imx6uirq.irqkeydesc[i].gpio);
+#endif
+
+        printk("key%d:gpio=%d,irqmun=%d\n",i,
+                                imx6uirq.irqkeydesc[i].gpio,
+                                imx6uirq.irqkeydesc[i].irqnum);
+    }
+
+    /* 申请中断 */
+    //指定对应的中断服务函数
+    imx6uirq.irqkeydesc[0].handler = key0_handler;
+    imx6uirq.irqkeydesc[0].value = KEY0VALUE;
+
+    for(i = 0;i < KEY_NUM;i++){
+        ret = request_irq(imx6uirq.irqkeydesc[i].irqnum,
+                          imx6uirq.irqkeydesc[i].handler,
+                          IRQF_TRIGGER_FALLING|IRQF_TRIGGER_RISING,
+                          imx6uirq.irqkeydesc[i].name,&imx6uirq);
+        if(ret < 0){
+            printk("irq %d request failed!\n",imx6uirq.irqkeydesc[i].irqnum);
+            return -EFAULT;
+        }
+    }
+
+    /* 创建定时器 */
+    init_timer(&imx6uirq.timer);
+    imx6uirq.timer.function = timer_function;
+
+    /* 初始化等待队列头 */
+    init_waitqueue_head(&imx6uirq.r_wait);
+
+    return 0;
+}
+
+
+static int imx6uirq_open(struct inode *inode, struct file *filp)
+{
+    filp->private_data = &imx6uirq;   //设置私有属性
+    return 0;
+}
+
+static int imx6uirq_close(struct inode *inode, struct file *filp)
+{
+    return 0;
+}
+
+static ssize_t imx6uirq_read(struct file *filp, char __user *buf, size_t count, loff_t *ppos)
+{
+    int ret = 0;
+    unsigned char keyvalue = 0;
+    unsigned char releasekey = 0;
+    struct imx6uirq_dev *dev = (struct imx6uirq_dev *)filp->private_data;
+
+#if 0
+    /* 加入等待队列，等待被唤醒，也就是按键按下 */
+    ret = wait_event_interruptible(dev->r_wait,atomic_read(&dev->releasekey));
+    if(ret){
+        goto wait_error;
+    }
+#endif
+
+    DECLARE_WAITQUEUE(wait,current);                /* 定义一个等待队列 */
+    if(atomic_read(&dev->releasekey) == 0){         /* 如果没有按键按下 */
+        add_wait_queue(&dev->r_wait,&wait);         /* 添加到等待对列头 */
+        set_current_state(TASK_INTERRUPTIBLE);      /* 设置任务状态 */
+        schedule();                                 /* 进行一次任务切换 */
+        if(signal_pending(current)){                /* 判断是否为信号引起的唤醒 */
+            ret = -ERESTARTSYS;
+            goto wait_error;
+        }
+
+        set_current_state(TASK_RUNNING);            /* 设置运行状态 */
+        remove_wait_queue(&dev->r_wait,&wait);
+    }
+
+    keyvalue = atomic_read(&dev->keyvalue);
+    releasekey = atomic_read(&dev->releasekey);
+
+    //如果按键按下
+    if(releasekey){
+        if(keyvalue & 0x80){
+            keyvalue &= ~0x80;
+            ret = copy_to_user(buf,&keyvalue,sizeof(keyvalue));
+        }else{
+            goto data_error;
+        }
+
+        atomic_set(&dev->releasekey,0); //标志位清零
+    }else{
+        goto data_error;
+    }
+
+    return ret;
+
+wait_error:
+    set_current_state(TASK_RUNNING);                /* 设置任务为运行状态 */
+    remove_wait_queue(&dev->r_wait,&wait);          /* 将等待队列删除 */
+    return ret;
+data_error:
+    return -EINVAL;
+}
+
+/* 设备操作函数 */
+static const struct file_operations imx6uirq_fops = {
+    .owner   = THIS_MODULE,
+    .open    = imx6uirq_open,
+    .release = imx6uirq_close,
+    .read    = imx6uirq_read,
+};
+
+/* 驱动入口函数 */
+static int __init imx6uirq_init(void)
+{
+    int ret;
+
+    /* 申请设备号 */
+    imx6uirq.major = 0;  //由内核分配
+    if(imx6uirq.major){  //给定设备号
+        imx6uirq.devid = MKDEV(imx6uirq.major,0);
+        ret = register_chrdev_region(imx6uirq.devid,IMX6UIRQ_CNT,IMX6UIRQ_NAME);
+    }else{
+        ret = alloc_chrdev_region(&imx6uirq.devid,0,IMX6UIRQ_CNT,IMX6UIRQ_NAME);
+        imx6uirq.major = MAJOR(imx6uirq.devid);
+        imx6uirq.minor = MINOR(imx6uirq.devid);
+    }
+    printk("key major = %d,minor = %d\n",imx6uirq.major,imx6uirq.minor);
+    if(ret < 0){
+        goto fail_devid;
+    }
+
+    /* 2.添加字符设备 */
+    imx6uirq.cdev.owner = THIS_MODULE;
+    cdev_init(&imx6uirq.cdev,&imx6uirq_fops);
+    ret = cdev_add(&imx6uirq.cdev,imx6uirq.devid,IMX6UIRQ_CNT);
+    if(ret < 0){
+        goto fail_cdev;
+    }
+
+    /* 自动添加设备节点 */
+    /* 1.添加类 */
+    imx6uirq.class = class_create(THIS_MODULE,IMX6UIRQ_NAME);
+    if(IS_ERR(imx6uirq.class)){
+        ret = PTR_ERR(imx6uirq.class);
+        goto fail_class;
+    }
+
+    /* 2.添加设备 */
+    imx6uirq.device = device_create(imx6uirq.class,NULL,imx6uirq.devid,NULL,IMX6UIRQ_NAME);
+    if(IS_ERR(imx6uirq.device)){
+        ret = PTR_ERR(imx6uirq.device);
+        goto fail_device;
+    }
+
+    /* 初始化按键，初始化原子变量 */
+    atomic_set(&imx6uirq.keyvalue,INVAKEY);
+    atomic_set(&imx6uirq.releasekey,0);
+    keyio_init();
+
+    return 0;
+
+fail_device:
+    class_destroy(imx6uirq.class);
+fail_class:
+    cdev_del(&imx6uirq.cdev);
+fail_cdev:
+    unregister_chrdev_region(imx6uirq.devid,IMX6UIRQ_CNT);
+fail_devid:
+    return ret;
+}
+
+/* 驱动出口函数 */
+static void __exit imx6uirq_exit(void)
+{
+    u8 i = 0;
+
+    /* 删除定时器 */
+    del_timer_sync(&imx6uirq.timer);
+
+    /* 释放中断和gpio */
+    for(i = 0;i < KEY_NUM;i++){
+        free_irq(imx6uirq.irqkeydesc[i].irqnum,&imx6uirq);
+        gpio_free(imx6uirq.irqkeydesc[i].gpio);
+    }
+
+    /* 注销字符设备驱动 */
+    cdev_del(&imx6uirq.cdev);    //删除cdev
+    unregister_chrdev_region(imx6uirq.devid,IMX6UIRQ_CNT);    //注销设备号
+    device_destroy(imx6uirq.class,imx6uirq.devid);    //摧毁设备
+    class_destroy(imx6uirq.class);   //摧毁类
+
+    return;
+}
+
+/* 注册驱动和卸载驱动 */
+module_init(imx6uirq_init);
+module_exit(imx6uirq_exit);
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("bcl");
+```
+
+应用代码与之前Linux中断实验中的相同，只需要把名字改成blockioAPP.c即可。
+
+### 非阻塞IO实验
+
+#### 编写驱动代码
+
+```c
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/io.h>
+#include <linux/cdev.h>
+#include <linux/device.h>
+#include <linux/of.h>
+#include <linux/of_address.h>
+#include <linux/of_gpio.h>
+#include <linux/of_irq.h>
+#include <linux/ide.h>
+#include <linux/wait.h>
+#include <linux/poll.h>
+
+#define IMX6UIRQ_CNT     1                  /* 设备号个数 */
+#define IMX6UIRQ_NAME    "noblockio"        /* 名字 */
+
+/* 定义按键值 */
+#define KEY0VALUE         0x00              /* 按键值 */
+#define INVAKEY           0xff              /* 无效按键值 */
+#define KEY_NUM           1                 /* 按键数量 */
+
+/* 中断IO描述结构体 */
+struct irq_keydesc{
+    int gpio;                               /* key使用的GPIO编号 */
+    int irqnum;                             /* 中断号 */
+    unsigned char value;                    /* 按键对应的键值 */
+    char name[10];                          /* 名字 */
+    irqreturn_t (*handler)(int,void *);     /* 中断服务函数 */
+};
+
+/* imx6uirq设备结构体 */
+struct imx6uirq_dev{
+    dev_t devid;                            /* 设备号 */
+    int major;                              /* 主设备号 */
+    int minor;                              /* 次设备号 */
+
+    struct cdev cdev;                       /* cdev */
+    struct class *class;                    /* 类 */
+    struct device *device;                  /* 设备 */
+    struct device_node *nd;                 /* 设备节点 */
+
+    atomic_t keyvalue;                      /* 按键值 */
+    atomic_t releasekey;                    /* 标记是否完成一次完成的按键 */
+    struct irq_keydesc irqkeydesc[KEY_NUM]; /* 按键描述数组 */
+    unsigned char curkeynum;                /* 当前按键号 */
+
+    struct timer_list timer;                /* 定义一个定时器 */
+
+    wait_queue_head_t   r_wait;             /* 读等待队列头 */
+};
+
+struct imx6uirq_dev imx6uirq; /* irq设备 */
+
+/* key0中断服务函数 */
+static irqreturn_t key0_handler(int irq,void *dev_id)
+{
+    struct imx6uirq_dev *dev = (struct imx6uirq_dev *)dev_id;
+
+    dev->curkeynum = 0; //当前为0号按键
+    dev->timer.data = (volatile unsigned long)dev_id;   //将设备结构体传入定时器服务函数
+    mod_timer(&dev->timer,jiffies + msecs_to_jiffies(10));  //延时10ms
+
+    return IRQ_RETVAL(IRQ_HANDLED);
+}
+
+/* 定时器服务函数 */
+void timer_function(unsigned long arg)
+{
+    unsigned char value;
+    unsigned char num;
+    struct irq_keydesc *keydesc;
+    struct imx6uirq_dev *dev = (struct imx6uirq_dev *)arg;  //类型变换
+
+    num = dev->curkeynum;
+    keydesc = &dev->irqkeydesc[num];
+
+    value = gpio_get_value(keydesc->gpio);  //读取io值
+    if(value == 0){ //按下按键
+        atomic_set(&dev->keyvalue,keydesc->value);
+    }else{          //松开按键
+        atomic_set(&dev->keyvalue,0x80|keydesc->value);
+        atomic_set(&dev->releasekey,1); //标记一次按键完成
+    }
+
+    /* 唤醒进程 */
+    if(atomic_read(&dev->releasekey)){  //完成一次按键过程
+        wake_up_interruptible(&dev->r_wait);
+    }
+}
+
+/* 按键初始化函数 */
+static int keyio_init(void)
+{
+    u8 i = 0;
+    int ret = 0;
+
+    /* 获取设备节点 */
+    imx6uirq.nd = of_find_node_by_path("/key");
+    if(imx6uirq.nd == NULL){
+        printk("key node not find!\n");
+        return -EINVAL;
+    }
+
+    /* 提取GPIO */
+    for(i = 0;i < KEY_NUM;i++){
+        imx6uirq.irqkeydesc[i].gpio = of_get_named_gpio(imx6uirq.nd,"key-gpio",i);
+        if(imx6uirq.irqkeydesc[i].gpio < 0){
+            printk("can't get key%d\n",i);
+        }
+    }
+
+    /* 初始化 key 所使用的 IO，并且设置成中断模式 */
+    for(i = 0;i < KEY_NUM;i++){
+        memset(imx6uirq.irqkeydesc[i].name,0,sizeof(imx6uirq.irqkeydesc[i].name));
+        sprintf(imx6uirq.irqkeydesc[i].name,"KEY%d",i);
+
+        //请求gpio
+        gpio_request(imx6uirq.irqkeydesc[i].gpio,imx6uirq.irqkeydesc[i].name);
+        //指定为输入模式
+        gpio_direction_input(imx6uirq.irqkeydesc[i].gpio);
+        //获取中断号
+        imx6uirq.irqkeydesc[i].irqnum = irq_of_parse_and_map(imx6uirq.nd,i);
+#if 0    
+        imx6uirq.irqkeydesc[i].irqnum = gpio_to_irq(imx6uirq.irqkeydesc[i].gpio);
+#endif
+
+        printk("key%d:gpio=%d,irqmun=%d\n",i,
+                                imx6uirq.irqkeydesc[i].gpio,
+                                imx6uirq.irqkeydesc[i].irqnum);
+    }
+
+    /* 申请中断 */
+    //指定对应的中断服务函数
+    imx6uirq.irqkeydesc[0].handler = key0_handler;
+    imx6uirq.irqkeydesc[0].value = KEY0VALUE;
+
+    for(i = 0;i < KEY_NUM;i++){
+        ret = request_irq(imx6uirq.irqkeydesc[i].irqnum,
+                          imx6uirq.irqkeydesc[i].handler,
+                          IRQF_TRIGGER_FALLING|IRQF_TRIGGER_RISING,
+                          imx6uirq.irqkeydesc[i].name,&imx6uirq);
+        if(ret < 0){
+            printk("irq %d request failed!\n",imx6uirq.irqkeydesc[i].irqnum);
+            return -EFAULT;
+        }
+    }
+
+    /* 创建定时器 */
+    init_timer(&imx6uirq.timer);
+    imx6uirq.timer.function = timer_function;
+
+    /* 初始化等待队列头 */
+    init_waitqueue_head(&imx6uirq.r_wait);
+
+    return 0;
+}
+
+
+static int imx6uirq_open(struct inode *inode, struct file *filp)
+{
+    filp->private_data = &imx6uirq;   //设置私有属性
+    return 0;
+}
+
+static int imx6uirq_close(struct inode *inode, struct file *filp)
+{
+    return 0;
+}
+
+static ssize_t imx6uirq_read(struct file *filp, char __user *buf, size_t count, loff_t *ppos)
+{
+    int ret = 0;
+    unsigned char keyvalue = 0;
+    unsigned char releasekey = 0;
+    struct imx6uirq_dev *dev = (struct imx6uirq_dev *)filp->private_data;
+
+    if(filp->f_flags & O_NONBLOCK){     /* 非阻塞访问 */
+        if(atomic_read(&dev->releasekey) == 0)  /* 如果没有按键按下 */
+            return -EAGAIN;
+    }else{                              /* 阻塞访问 */
+        /* 加入等待队列，等待被唤醒，也就是按键按下 */
+        ret = wait_event_interruptible(dev->r_wait,atomic_read(&dev->releasekey));
+        if(ret){
+            goto wait_error;
+        }
+    }
+
+    keyvalue = atomic_read(&dev->keyvalue);
+    releasekey = atomic_read(&dev->releasekey);
+
+    //如果按键按下
+    if(releasekey){
+        if(keyvalue & 0x80){
+            keyvalue &= ~0x80;
+            ret = copy_to_user(buf,&keyvalue,sizeof(keyvalue));
+        }else{
+            goto data_error;
+        }
+
+        atomic_set(&dev->releasekey,0); //标志位清零
+    }else{
+        goto data_error;
+    }
+
+    return ret;
+
+wait_error:
+    return ret;
+data_error:
+    return -EINVAL;
+}
+
+unsigned int imx6uirq_poll(struct file *filp, struct poll_table_struct *wait)
+{
+    unsigned int mask = 0;
+    struct imx6uirq_dev *dev = (struct imx6uirq_dev *)filp->private_data;
+
+    poll_wait(filp,&dev->r_wait,wait);
+    if(atomic_read(&dev->releasekey)){  //如果按键按下
+        mask = POLLIN | POLLRDNORM;     //返回POLLIN
+    }
+
+    return mask;
+}
+
+/* 设备操作函数 */
+static const struct file_operations imx6uirq_fops = {
+    .owner   = THIS_MODULE,
+    .open    = imx6uirq_open,
+    .release = imx6uirq_close,
+    .read    = imx6uirq_read,
+    .poll    = imx6uirq_poll,
+};
+
+/* 驱动入口函数 */
+static int __init imx6uirq_init(void)
+{
+    int ret;
+
+    /* 申请设备号 */
+    imx6uirq.major = 0;  //由内核分配
+    if(imx6uirq.major){  //给定设备号
+        imx6uirq.devid = MKDEV(imx6uirq.major,0);
+        ret = register_chrdev_region(imx6uirq.devid,IMX6UIRQ_CNT,IMX6UIRQ_NAME);
+    }else{
+        ret = alloc_chrdev_region(&imx6uirq.devid,0,IMX6UIRQ_CNT,IMX6UIRQ_NAME);
+        imx6uirq.major = MAJOR(imx6uirq.devid);
+        imx6uirq.minor = MINOR(imx6uirq.devid);
+    }
+    printk("key major = %d,minor = %d\n",imx6uirq.major,imx6uirq.minor);
+    if(ret < 0){
+        goto fail_devid;
+    }
+
+    /* 2.添加字符设备 */
+    imx6uirq.cdev.owner = THIS_MODULE;
+    cdev_init(&imx6uirq.cdev,&imx6uirq_fops);
+    ret = cdev_add(&imx6uirq.cdev,imx6uirq.devid,IMX6UIRQ_CNT);
+    if(ret < 0){
+        goto fail_cdev;
+    }
+
+    /* 自动添加设备节点 */
+    /* 1.添加类 */
+    imx6uirq.class = class_create(THIS_MODULE,IMX6UIRQ_NAME);
+    if(IS_ERR(imx6uirq.class)){
+        ret = PTR_ERR(imx6uirq.class);
+        goto fail_class;
+    }
+
+    /* 2.添加设备 */
+    imx6uirq.device = device_create(imx6uirq.class,NULL,imx6uirq.devid,NULL,IMX6UIRQ_NAME);
+    if(IS_ERR(imx6uirq.device)){
+        ret = PTR_ERR(imx6uirq.device);
+        goto fail_device;
+    }
+
+    /* 初始化按键，初始化原子变量 */
+    atomic_set(&imx6uirq.keyvalue,INVAKEY);
+    atomic_set(&imx6uirq.releasekey,0);
+    keyio_init();
+
+    return 0;
+
+fail_device:
+    class_destroy(imx6uirq.class);
+fail_class:
+    cdev_del(&imx6uirq.cdev);
+fail_cdev:
+    unregister_chrdev_region(imx6uirq.devid,IMX6UIRQ_CNT);
+fail_devid:
+    return ret;
+}
+
+/* 驱动出口函数 */
+static void __exit imx6uirq_exit(void)
+{
+    u8 i = 0;
+
+    /* 删除定时器 */
+    del_timer_sync(&imx6uirq.timer);
+
+    /* 释放中断和gpio */
+    for(i = 0;i < KEY_NUM;i++){
+        free_irq(imx6uirq.irqkeydesc[i].irqnum,&imx6uirq);
+        gpio_free(imx6uirq.irqkeydesc[i].gpio);
+    }
+
+    /* 注销字符设备驱动 */
+    cdev_del(&imx6uirq.cdev);    //删除cdev
+    unregister_chrdev_region(imx6uirq.devid,IMX6UIRQ_CNT);    //注销设备号
+    device_destroy(imx6uirq.class,imx6uirq.devid);    //摧毁设备
+    class_destroy(imx6uirq.class);   //摧毁类
+
+    return;
+}
+
+/* 注册驱动和卸载驱动 */
+module_init(imx6uirq_init);
+module_exit(imx6uirq_exit);
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("bcl");
+```
+
+```c
+#include <fcntl.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <poll.h>
+#include <time.h>
+#include <sys/types.h>
+#include <sys/select.h>
+
+
+/**
+ * ./noblockioAPP <filename> 
+ * ./noblockioAPP /dev/noblockio
+*/
+
+int main(int argc,char *argv[])
+{
+    int fd;
+    int ret;
+    char *filename;
+    struct pollfd fds;
+    fd_set readfds;
+    struct timeval timeout;
+    unsigned char data;
+
+    /* 参数数量检测 */
+    if (argc != 2)
+    {
+        printf("Error usage\n");
+        return -1;
+    }
+
+    filename = argv[1];
+
+    /* 打开文件 */
+    fd = open(filename,O_RDWR | O_NONBLOCK);    //非阻塞访问
+    if(fd < 0){
+        perror("open");
+        return -1;
+    }
+
+#if 0
+    /* 使用poll函数 */
+    /* 构造结构体 */
+    fds.fd = fd;
+    fds.events = POLLIN;
+
+    while(1){
+        ret = poll(&fds,1,500);  //监视文件描述符fds，监视的文件描述符个数为1，超时时间为500ms
+        if(ret){    //数据有效
+            ret = read(fd,&data,sizeof(data));
+            if(ret < 0){
+                //读取错误
+            }else{
+                printf("key value = %d\n",data);
+            }
+        }else if(ret == 0){     //超时
+
+        }else if(ret < 0){      //错误
+
+        }
+    }
+#endif
+
+    /* 使用select函数 */
+    while(1){
+        FD_ZERO(&readfds);
+        FD_SET(fd,&readfds);
+
+        /* 构造超时时间 */
+        timeout.tv_sec = 0;
+        timeout.tv_usec = 500000;   //500ms
+
+        ret = select(fd+1,&readfds,NULL,NULL,&timeout);
+
+        switch(ret){
+            case 0:     //超时
+                /* 用户自定义超时处理 */
+                break;
+            case -1:    //错误
+                /* 用户自定义错误处理 */
+                break;
+            default:    //可以读取数据
+                if(FD_ISSET(fd,&readfds)){
+                    ret = read(fd,&data,sizeof(data));
+                    if(ret < 0){
+                        //读取错误
+                    }else{
+                        printf("key value = %d\n",data);
+                    }
+                }
+                break;
+        }
+    }
+
+    /* 关闭文件 */
+    ret = close(fd);
+    if(ret){
+        perror("close");
+        return -1;
+    }
+
+    return 0;
+}
+```
+
+## Linux异步通知实验
+
+使用阻塞或者非阻塞的方式来读取驱动中按键值都是应用程序主动读取的，对于非阻塞方式来说还需要应用程序通过 poll 函数不断的轮询。
+
+异步通知就是驱动程序能主动向应用程序发出通知，然后应用程序在从驱动程序中读取或写入数据。
+
+### 异步通知
+
+阻塞、非阻塞、异步通知，这三种是针对不同的场合提出来的不同的解决方法，没有优劣之分。
+
+异步通知的核心就是信号，在 arch/xtensa/include/uapi/asm/signal.h中
+
+```c
+#define SIGHUP 1 /* 终端挂起或控制进程终止 */
+#define SIGINT 2 /* 终端中断(Ctrl+C 组合键) */
+#define SIGQUIT 3 /* 终端退出(Ctrl+\组合键) */
+#define SIGILL 4 /* 非法指令 */
+#define SIGTRAP 5 /* debug 使用，有断点指令产生 */
+#define SIGABRT 6 /* 由 abort(3)发出的退出指令 */
+#define SIGIOT 6 /* IOT 指令 */
+#define SIGBUS 7 /* 总线错误 */
+#define SIGFPE 8 /* 浮点运算错误 */
+#define SIGKILL 9 /* 杀死、终止进程 */
+#define SIGUSR1 10 /* 用户自定义信号 1 */
+#define SIGSEGV 11 /* 段违例(无效的内存段) */
+#define SIGUSR2 12 /* 用户自定义信号 2 */
+#define SIGPIPE 13 /* 向非读管道写入数据 */
+#define SIGALRM 14 /* 闹钟 */
+#define SIGTERM 15 /* 软件终止 */
+#define SIGSTKFLT 16 /* 栈异常 */
+#define SIGCHLD 17 /* 子进程结束 */
+#define SIGCONT 18 /* 进程继续 */
+#define SIGSTOP 19 /* 停止进程的执行，只是暂停 */
+#define SIGTSTP 20 /* 停止进程的运行(Ctrl+Z 组合键) */
+#define SIGTTIN 21 /* 后台进程需要从终端读取数据 */
+#define SIGTTOU 22 /* 后台进程需要向终端写数据 */
+#define SIGURG 23 /* 有"紧急"数据 */
+#define SIGXCPU 24 /* 超过 CPU 资源限制 */
+#define SIGXFSZ 25 /* 文件大小超额 */
+#define SIGVTALRM 26 /* 虚拟时钟信号 */
+#define SIGPROF 27 /* 时钟信号描述 */
+#define SIGWINCH 28 /* 窗口大小改变 */
+#define SIGIO 29 /* 可以进行输入/输出操作 */
+#define SIGPOLL SIGIO 
+/* #define SIGLOS 29 */
+#define SIGPWR 30 /* 断点重启 */
+#define SIGSYS 31 /* 非法的系统调用 */
+#define SIGUNUSED 31 /* 未使用信号 */
+```
+
+除了 SIGKILL(9)和 SIGSTOP(19)这两个信号不能被忽略外，其他的信号都可以忽略。
+
+**设置中断处理函数**
+
+`sighandler_t signal(int signum, sighandler_t handler)`
+
+signum：要设置处理函数的信号。
+
+handler：信号的处理函数。
+
+返回值：设置成功的话返回信号的前一个处理函数，设置失败的话返回 SIG_ERR。
+
+### 驱动中的信号处理
+
+**fasync_struct 结构体**
+
+```c
+struct fasync_struct {
+ 	spinlock_t fa_lock;
+ 	int magic;
+ 	int fa_fd;
+ 	struct fasync_struct *fa_next;
+ 	struct file *fa_file;
+ 	struct rcu_head fa_rcu;
+};
+```
+
+**fasync 函数**
+
+使用异步通知需要在设备驱动中实现 file_operations 操作集中的 fasync 函数
+
+`int (*fasync) (int fd, struct file *filp, int on)`
+
+fasync 函数里面一般通过调用 fasync_helper 函数来初始化前面定义的 fasync_struct 结构体 指针，fasync_helper 函数原型如下：
+
+`int fasync_helper(int fd, struct file * filp, int on, struct fasync_struct **fapp)`
+
+fasync_helper 函数的前三个参数就是 fasync 函数的那三个参数，第四个参数就是要初始化 的 fasync_struct 结构体指针变量。当应用程序通过“fcntl(fd, F_SETFL, flags | FASYNC)”改变 fasync 标记的时候，驱动程序 file_operations 操作集中的 fasync 函数就会执行。
+
+驱动程序中的 fasync 函数参考示例如下：
+
+```c
+struct xxx_dev { 
+	......
+	struct fasync_struct *async_queue; /* 异步相关结构体 */
+};
+
+static int xxx_fasync(int fd, struct file *filp, int on)
+{
+	struct xxx_dev *dev = (xxx_dev)filp->private_data;
+
+	if (fasync_helper(fd, filp, on, &dev->async_queue) < 0)
+		return -EIO;
+	return 0;
+}
+
+ static struct file_operations xxx_ops = {
+	......
+	.fasync = xxx_fasync,
+	......
+};
+```
+
+在关闭驱动文件的时候需要在 file_operations 操作集中的 release 函数中释放 fasync_struct， fasync_struct 的释放函数同样为 fasync_helper，release 函数参数参考实例如下：
+
+```c
+static int xxx_release(struct inode *inode, struct file *filp)
+{
+	return xxx_fasync(-1, filp, 0); /* 删除异步通知 */
+}
+```
+
+**kill_fasync 函数**
+
+kill_fasync 函数负责发送指定的信号，kill_fasync 函数原型如下所示：
+
+`void kill_fasync(struct fasync_struct **fp, int sig, int band)`
+
+函数参数和返回值含义如下： 
+
+fp：要操作的 fasync_struct。 
+
+sig：要发送的信号。 
+
+band：可读时设置为 POLL_IN，可写时设置为 POLL_OUT。 
+
+返回值：无。
+
+### 应用程序对异步通知的处理
+
+应用程序对异步通知的处理包括以下三步： 
+
+1、注册信号处理函数 
+
+应用程序根据驱动程序所使用的信号来设置信号的处理函数，应用程序使用 signal 函数来设置信号的处理函数。前面已经详细的讲过了，这里就不细讲了。 
+
+2、将本应用程序的进程号告诉给内核 
+
+使用 fcntl(fd, F_SETOWN, getpid())将本应用程序的进程号告诉给内核。 
+
+3、开启异步通知 
+
+使用如下两行程序开启异步通知： 
+
+`flags = fcntl(fd, F_GETFL); /* 获取当前的进程状态 */ `
+
+`fcntl(fd, F_SETFL, flags | FASYNC); /* 开启当前进程异步通知功能 */ `
+
+重点就是通过 fcntl 函数设置进程状态为 FASYNC，经过这一步，驱动程序中的 fasync 函数就会执行。
+
+### 编写驱动代码
+
+测试 APP 要实现的内容很简单，设置 SIGIO 信号的处理函数为 sigio_signal_func，当驱动程序向应用程序发送 SIGIO 信号以后 sigio_signal_func 函数就会执行。sigio_signal_func 函数内 容很简单，就是通过 read 函数读取按键值。
+
+```c
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/io.h>
+#include <linux/cdev.h>
+#include <linux/device.h>
+#include <linux/of.h>
+#include <linux/of_address.h>
+#include <linux/of_gpio.h>
+#include <linux/of_irq.h>
+#include <linux/ide.h>
+#include <linux/wait.h>
+#include <linux/poll.h>
+#include <linux/fcntl.h>
+
+#define IMX6UIRQ_CNT     1                  /* 设备号个数 */
+#define IMX6UIRQ_NAME    "asyncnoti"        /* 名字 */
+
+/* 定义按键值 */
+#define KEY0VALUE         0x00              /* 按键值 */
+#define INVAKEY           0xff              /* 无效按键值 */
+#define KEY_NUM           1                 /* 按键数量 */
+
+/* 中断IO描述结构体 */
+struct irq_keydesc{
+    int gpio;                               /* key使用的GPIO编号 */
+    int irqnum;                             /* 中断号 */
+    unsigned char value;                    /* 按键对应的键值 */
+    char name[10];                          /* 名字 */
+    irqreturn_t (*handler)(int,void *);     /* 中断服务函数 */
+};
+
+/* imx6uirq设备结构体 */
+struct imx6uirq_dev{
+    dev_t devid;                            /* 设备号 */
+    int major;                              /* 主设备号 */
+    int minor;                              /* 次设备号 */
+
+    struct cdev cdev;                       /* cdev */
+    struct class *class;                    /* 类 */
+    struct device *device;                  /* 设备 */
+    struct device_node *nd;                 /* 设备节点 */
+
+    atomic_t keyvalue;                      /* 按键值 */
+    atomic_t releasekey;                    /* 标记是否完成一次完成的按键 */
+    struct irq_keydesc irqkeydesc[KEY_NUM]; /* 按键描述数组 */
+    unsigned char curkeynum;                /* 当前按键号 */
+
+    struct timer_list timer;                /* 定义一个定时器 */
+
+    wait_queue_head_t   r_wait;             /* 读等待队列头 */
+
+    struct fasync_struct *async_queue;      /* 异步相关结构体 */
+};
+
+struct imx6uirq_dev imx6uirq; /* irq设备 */
+
+/* key0中断服务函数 */
+static irqreturn_t key0_handler(int irq,void *dev_id)
+{
+    struct imx6uirq_dev *dev = (struct imx6uirq_dev *)dev_id;
+
+    dev->curkeynum = 0; //当前为0号按键
+    dev->timer.data = (volatile unsigned long)dev_id;   //将设备结构体传入定时器服务函数
+    mod_timer(&dev->timer,jiffies + msecs_to_jiffies(10));  //延时10ms
+
+    return IRQ_RETVAL(IRQ_HANDLED);
+}
+
+/* 定时器服务函数 */
+void timer_function(unsigned long arg)
+{
+    unsigned char value;
+    unsigned char num;
+    struct irq_keydesc *keydesc;
+    struct imx6uirq_dev *dev = (struct imx6uirq_dev *)arg;  //类型变换
+
+    num = dev->curkeynum;
+    keydesc = &dev->irqkeydesc[num];
+
+    value = gpio_get_value(keydesc->gpio);  //读取io值
+    if(value == 0){ //按下按键
+        atomic_set(&dev->keyvalue,keydesc->value);
+    }else{          //松开按键
+        atomic_set(&dev->keyvalue,0x80|keydesc->value);
+        atomic_set(&dev->releasekey,1); //标记一次按键完成
+    }
+
+    if(atomic_read(&dev->releasekey)){  //完成一次按键过程
+        if(dev->async_queue){
+            kill_fasync(&dev->async_queue,SIGIO,POLL_IN);
+            printk("kill_fasync\n");
+            atomic_set(&dev->releasekey,0); //标志位清零
+        }
+    }
+#if 0
+    /* 唤醒进程 */
+    if(atomic_read(&dev->releasekey)){  //完成一次按键过程
+        wake_up_interruptible(&dev->r_wait);
+    }
+#endif
+
+}
+
+/* 按键初始化函数 */
+static int keyio_init(void)
+{
+    u8 i = 0;
+    int ret = 0;
+
+    /* 获取设备节点 */
+    imx6uirq.nd = of_find_node_by_path("/key");
+    if(imx6uirq.nd == NULL){
+        printk("key node not find!\n");
+        return -EINVAL;
+    }
+
+    /* 提取GPIO */
+    for(i = 0;i < KEY_NUM;i++){
+        imx6uirq.irqkeydesc[i].gpio = of_get_named_gpio(imx6uirq.nd,"key-gpio",i);
+        if(imx6uirq.irqkeydesc[i].gpio < 0){
+            printk("can't get key%d\n",i);
+        }
+    }
+
+    /* 初始化 key 所使用的 IO，并且设置成中断模式 */
+    for(i = 0;i < KEY_NUM;i++){
+        memset(imx6uirq.irqkeydesc[i].name,0,sizeof(imx6uirq.irqkeydesc[i].name));
+        sprintf(imx6uirq.irqkeydesc[i].name,"KEY%d",i);
+
+        //请求gpio
+        gpio_request(imx6uirq.irqkeydesc[i].gpio,imx6uirq.irqkeydesc[i].name);
+        //指定为输入模式
+        gpio_direction_input(imx6uirq.irqkeydesc[i].gpio);
+        //获取中断号
+        imx6uirq.irqkeydesc[i].irqnum = irq_of_parse_and_map(imx6uirq.nd,i);
+#if 0    
+        imx6uirq.irqkeydesc[i].irqnum = gpio_to_irq(imx6uirq.irqkeydesc[i].gpio);
+#endif
+
+        printk("key%d:gpio=%d,irqmun=%d\n",i,
+                                imx6uirq.irqkeydesc[i].gpio,
+                                imx6uirq.irqkeydesc[i].irqnum);
+    }
+
+    /* 申请中断 */
+    //指定对应的中断服务函数
+    imx6uirq.irqkeydesc[0].handler = key0_handler;
+    imx6uirq.irqkeydesc[0].value = KEY0VALUE;
+
+    for(i = 0;i < KEY_NUM;i++){
+        ret = request_irq(imx6uirq.irqkeydesc[i].irqnum,
+                          imx6uirq.irqkeydesc[i].handler,
+                          IRQF_TRIGGER_FALLING|IRQF_TRIGGER_RISING,
+                          imx6uirq.irqkeydesc[i].name,&imx6uirq);
+        if(ret < 0){
+            printk("irq %d request failed!\n",imx6uirq.irqkeydesc[i].irqnum);
+            return -EFAULT;
+        }
+    }
+
+    /* 创建定时器 */
+    init_timer(&imx6uirq.timer);
+    imx6uirq.timer.function = timer_function;
+
+    /* 初始化等待队列头 */
+    init_waitqueue_head(&imx6uirq.r_wait);
+
+    return 0;
+}
+
+
+static int imx6uirq_open(struct inode *inode, struct file *filp)
+{
+    filp->private_data = &imx6uirq;   //设置私有属性
+    return 0;
+}
+
+static ssize_t imx6uirq_read(struct file *filp, char __user *buf, size_t count, loff_t *ppos)
+{
+    int ret = 0;
+#if 0
+    unsigned char keyvalue = 0;
+    unsigned char releasekey = 0;
+    struct imx6uirq_dev *dev = (struct imx6uirq_dev *)filp->private_data;
+
+
+    if(filp->f_flags & O_NONBLOCK){     /* 非阻塞访问 */
+        if(atomic_read(&dev->releasekey) == 0)  /* 如果没有按键按下 */
+            return -EAGAIN;
+    }else{                              /* 阻塞访问 */
+        /* 加入等待队列，等待被唤醒，也就是按键按下 */
+        ret = wait_event_interruptible(dev->r_wait,atomic_read(&dev->releasekey));
+        if(ret){
+            goto wait_error;
+        }
+    }
+
+    keyvalue = atomic_read(&dev->keyvalue);
+    releasekey = atomic_read(&dev->releasekey);
+
+    //如果按键按下
+    if(releasekey){
+        if(keyvalue & 0x80){
+            keyvalue &= ~0x80;
+            ret = copy_to_user(buf,&keyvalue,sizeof(keyvalue));
+        }else{
+            goto data_error;
+        }
+
+        atomic_set(&dev->releasekey,0); //标志位清零
+    }else{
+        goto data_error;
+    }
+
+    return ret;
+
+wait_error:
+    return ret;
+data_error:
+    return -EINVAL;
+#endif
+    return ret;
+
+}
+
+static unsigned int imx6uirq_poll(struct file *filp, struct poll_table_struct *wait)
+{
+    unsigned int mask = 0;
+#if 0
+    struct imx6uirq_dev *dev = (struct imx6uirq_dev *)filp->private_data;
+
+    poll_wait(filp,&dev->r_wait,wait);
+    if(atomic_read(&dev->releasekey)){  //如果按键按下
+        mask = POLLIN | POLLRDNORM;     //返回POLLIN
+    }
+#endif
+    return mask;
+}
+
+static int imx6uirq_fasync(int fd, struct file *filp, int on)
+{
+    struct imx6uirq_dev *dev = (struct imx6uirq_dev *)filp->private_data;
+
+    return fasync_helper(fd,filp,on,&dev->async_queue);
+}
+
+static int imx6uirq_close(struct inode *inode, struct file *filp)
+{
+    return imx6uirq_fasync(-1,filp,0);
+}
+
+/* 设备操作函数 */
+static const struct file_operations imx6uirq_fops = {
+    .owner   = THIS_MODULE,
+    .open    = imx6uirq_open,
+    .release = imx6uirq_close,
+    .read    = imx6uirq_read,
+    .poll    = imx6uirq_poll,
+    .fasync  = imx6uirq_fasync,
+};
+
+/* 驱动入口函数 */
+static int __init imx6uirq_init(void)
+{
+    int ret;
+
+    /* 申请设备号 */
+    imx6uirq.major = 0;  //由内核分配
+    if(imx6uirq.major){  //给定设备号
+        imx6uirq.devid = MKDEV(imx6uirq.major,0);
+        ret = register_chrdev_region(imx6uirq.devid,IMX6UIRQ_CNT,IMX6UIRQ_NAME);
+    }else{
+        ret = alloc_chrdev_region(&imx6uirq.devid,0,IMX6UIRQ_CNT,IMX6UIRQ_NAME);
+        imx6uirq.major = MAJOR(imx6uirq.devid);
+        imx6uirq.minor = MINOR(imx6uirq.devid);
+    }
+    printk("key major = %d,minor = %d\n",imx6uirq.major,imx6uirq.minor);
+    if(ret < 0){
+        goto fail_devid;
+    }
+
+    /* 2.添加字符设备 */
+    imx6uirq.cdev.owner = THIS_MODULE;
+    cdev_init(&imx6uirq.cdev,&imx6uirq_fops);
+    ret = cdev_add(&imx6uirq.cdev,imx6uirq.devid,IMX6UIRQ_CNT);
+    if(ret < 0){
+        goto fail_cdev;
+    }
+
+    /* 自动添加设备节点 */
+    /* 1.添加类 */
+    imx6uirq.class = class_create(THIS_MODULE,IMX6UIRQ_NAME);
+    if(IS_ERR(imx6uirq.class)){
+        ret = PTR_ERR(imx6uirq.class);
+        goto fail_class;
+    }
+
+    /* 2.添加设备 */
+    imx6uirq.device = device_create(imx6uirq.class,NULL,imx6uirq.devid,NULL,IMX6UIRQ_NAME);
+    if(IS_ERR(imx6uirq.device)){
+        ret = PTR_ERR(imx6uirq.device);
+        goto fail_device;
+    }
+
+    /* 初始化按键，初始化原子变量 */
+    atomic_set(&imx6uirq.keyvalue,INVAKEY);
+    atomic_set(&imx6uirq.releasekey,0);
+    keyio_init();
+
+    return 0;
+
+fail_device:
+    class_destroy(imx6uirq.class);
+fail_class:
+    cdev_del(&imx6uirq.cdev);
+fail_cdev:
+    unregister_chrdev_region(imx6uirq.devid,IMX6UIRQ_CNT);
+fail_devid:
+    return ret;
+}
+
+/* 驱动出口函数 */
+static void __exit imx6uirq_exit(void)
+{
+    u8 i = 0;
+
+    /* 删除定时器 */
+    del_timer_sync(&imx6uirq.timer);
+
+    /* 释放中断和gpio */
+    for(i = 0;i < KEY_NUM;i++){
+        free_irq(imx6uirq.irqkeydesc[i].irqnum,&imx6uirq);
+        gpio_free(imx6uirq.irqkeydesc[i].gpio);
+    }
+
+    /* 注销字符设备驱动 */
+    cdev_del(&imx6uirq.cdev);    //删除cdev
+    unregister_chrdev_region(imx6uirq.devid,IMX6UIRQ_CNT);    //注销设备号
+    device_destroy(imx6uirq.class,imx6uirq.devid);    //摧毁设备
+    class_destroy(imx6uirq.class);   //摧毁类
+
+    return;
+}
+
+/* 注册驱动和卸载驱动 */
+module_init(imx6uirq_init);
+module_exit(imx6uirq_exit);
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("bcl");
+```
+
+```c
+#include <fcntl.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include <poll.h>
+#include <time.h>
+#include <sys/types.h>
+#include <sys/select.h>
+#include <signal.h>
+
+/**
+ * ./asyncnotiAPP <filename> 
+ * ./asyncnotiAPP /dev/asyncnoti
+*/
+
+static int fd;
+
+void sigio_signal_func(int signum)
+{
+    int err = 0;
+    unsigned int keyvalue = 0;
+
+    err = read(fd,&keyvalue,sizeof(keyvalue));
+    if(err < 0){
+        //读取错误
+    }else{
+        printf("sigio signal! key value = %d\n",keyvalue);
+    }
+}
+
+int main(int argc,char *argv[])
+{
+
+    int ret;
+    int flags = 0;
+    char *filename;
+
+    /* 参数数量检测 */
+    if (argc != 2)
+    {
+        printf("Error usage\n");
+        return -1;
+    }
+
+    filename = argv[1];
+
+    /* 打开文件 */
+    fd = open(filename,O_RDWR);
+    if(fd < 0){
+        perror("open");
+        return -1;
+    }
+
+    /* 设置信号 SIGIO 的处理函数 */
+    signal(SIGIO,sigio_signal_func);
+
+    fcntl(fd,F_SETOWN,getpid());    //将当前进程的进程号告诉内核
+    flags = fcntl(fd,F_GETFD);      //获取当前的进程状态
+    fcntl(fd,F_SETFL,flags|FASYNC); //设置进程启用异步通知功能
+
+    while(1){
+        sleep(2);
+    }
+
+    /* 关闭文件 */
+    ret = close(fd);
+    if(ret){
+        perror("close");
+        return -1;
+    }
+
+    return 0;
+}
+```
+
+## Linux的platform设备驱动实验
+
+Linux 系统要考虑到驱动的可重用性，提出了驱动的分离和分层，诞生了platform设备驱动。
+
+### platform 平台驱动模型简介
+
+设备一般有总线(bus)、驱动(driver)和设备(device)模型，比如 I2C、SPI、USB 等总线。但是有些外设并没有总线如何解决呢？这里就引入了platform虚拟总线。
+
+#### platform总线
+
+Linux系统内核使用bus_type 结构体表示总线，此结构体定义在文件 include/linux/device.h。
+
+```c
+struct bus_type {
+	const char		*name;					//总线名字
+	const char		*dev_name;
+	struct device		*dev_root;
+	struct device_attribute	*dev_attrs;	/* use dev_groups instead */
+	const struct attribute_group **bus_groups;	//总线属性
+	const struct attribute_group **dev_groups;	//设备属性
+	const struct attribute_group **drv_groups;	//驱动属性
+
+	int (*match)(struct device *dev, struct device_driver *drv);
+	int (*uevent)(struct device *dev, struct kobj_uevent_env *env);
+	int (*probe)(struct device *dev);
+	int (*remove)(struct device *dev);
+	void (*shutdown)(struct device *dev);
+
+	int (*online)(struct device *dev);
+	int (*offline)(struct device *dev);
+
+	int (*suspend)(struct device *dev, pm_message_t state);
+	int (*resume)(struct device *dev);
+
+	const struct dev_pm_ops *pm;
+
+	const struct iommu_ops *iommu_ops;
+
+	struct subsys_private *p;
+	struct lock_class_key lock_key;
+};
+```
+
+其中match函数很重要，根据注册的设备查找对应的驱动。每一条总线都需要完成此函数。dev和drv两个参数代表设备与驱动。
+
+platform 总线是 bus_type 的一个具体实例，定义在文件 drivers/base/platform.c，platform 总线定义如下：
+
+```c
+struct bus_type platform_bus_type = {
+	.name		= "platform",
+	.dev_groups	= platform_dev_groups,
+	.match		= platform_match,
+	.uevent		= platform_uevent,
+	.pm		= &platform_dev_pm_ops,
+};
+```
+
+其中 platform_match 就是匹配函数，代码如下：
+
+```c
+static int platform_match(struct device *dev, struct device_driver *drv)
+{
+	struct platform_device *pdev = to_platform_device(dev);
+	struct platform_driver *pdrv = to_platform_driver(drv);
+
+	/* When driver_override is set, only bind to the matching driver */
+	if (pdev->driver_override)
+		return !strcmp(pdev->driver_override, drv->name);
+
+	/* Attempt an OF style match first */
+	if (of_driver_match_device(dev, drv))
+		return 1;
+
+	/* Then try ACPI style match */
+	if (acpi_driver_match_device(dev, drv))
+		return 1;
+
+	/* Then try to match against the id table */
+	if (pdrv->id_table)
+		return platform_match_id(pdrv->id_table, pdev) != NULL;
+
+	/* fall-back to driver name match */
+	return (strcmp(pdev->name, drv->name) == 0);
+}
+```
+
+这里是四种匹配方法
+
+1. OF类型匹配，就是设备树匹配方式，检查compatible属性进行匹配
+2. ACPI匹配方式
+3. id_table匹配，使用id_table进行匹配
+4. 直接比较驱动和设备name，相同则匹配成功
+
+最常使用第一种和第四种，分别用于支持设备树和不支持设备树。
+
+#### platform驱动
+
+platform_driver 结构体表示 platform 驱动，此结构体定义在文件 include/linux/platform_device.h 中。
+
+```c
+struct platform_driver {
+	int (*probe)(struct platform_device *);
+	int (*remove)(struct platform_device *);
+	void (*shutdown)(struct platform_device *);
+	int (*suspend)(struct platform_device *, pm_message_t state);
+	int (*resume)(struct platform_device *);
+	struct device_driver driver;
+	const struct platform_device_id *id_table;
+	bool prevent_deferred_probe;
+};
+```
+
+probe 函数，当驱动与设备匹配成功以后 probe 函数就会执行，非常重要的函数！！
+
+注册platform驱动
+
+`int platform_driver_register (struct platform_driver *driver)`
+
+卸载platform驱动
+
+`void platform_driver_unregister(struct platform_driver *drv)`
+
+#### platform设备
+
+platform_device 这个结构体表示 platform 设备，这里我们要注意，如果内核支持设备树的话就不要再使用 platform_device 来描述设备了，因为改用设备树去描述了。platform_device 结构体定义在文件 include/linux/platform_device.h 中。
+
+```c
+struct platform_device {
+	const char	*name;
+	int		id;
+	bool		id_auto;
+	struct device	dev;
+	u32		num_resources;
+	struct resource	*resource;
+
+	const struct platform_device_id	*id_entry;
+	char *driver_override; /* Driver name to force a match */
+
+	/* MFD cell pointer */
+	struct mfd_cell *mfd_cell;
+
+	/* arch specific additions */
+	struct pdev_archdata	archdata;
+};
+```
+
+注册platform设备
+
+`int platform_device_register(struct platform_device *pdev)`
+
+卸载platform设备
+
+`void platform_device_unregister(struct platform_device *pdev)`
+
+### 无设备树platform驱动编写
+
+无设备树的情况需要编写device和driver两个文件，分别描述设备和驱动。当这两个模块都加载成功以后就会匹配成功，然后 platform 驱动模块中的 probe 函数就会执行，probe 函数中就是传统的字符设备驱动那一套。
+
+device文件，模块加载完成后，可以在/sys/bus/platform/devices路径下看到所写的设备。
+
+```c
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/io.h>
+#include <linux/cdev.h>
+#include <linux/device.h>
+#include <linux/platform_device.h>
+
+/* 寄存器物理地址 */
+#define CCM_CCGR1_BASE              (0X020C406C)
+#define SW_MUX_GPIO1_IO03_BASE      (0X020E0068)
+#define SW_PAD_GPIO1_IO03_BASE      (0X020E02F4)
+#define GPIO1_DR_BASE               (0X0209C000)
+#define GPIO1_GDIR_BASE             (0X0209C004)
+
+/* 寄存器长度 */
+#define REGISTER_LENGTH      4   
+
+/* 释放led模块 */
+static void led_release(struct device *dev)
+{
+    printk("led device release!\n");
+}
+
+/* 设备资源结构体，存放LED0所需要的寄存器 */
+static struct resource led_resources[] = {
+    [0] = {
+        .start = CCM_CCGR1_BASE,
+        .end   = CCM_CCGR1_BASE + REGISTER_LENGTH - 1,
+        .flags = IORESOURCE_MEM,        //代表内存资源
+    },
+    [1] = {
+        .start = SW_MUX_GPIO1_IO03_BASE,
+        .end   = SW_MUX_GPIO1_IO03_BASE + REGISTER_LENGTH - 1,
+        .flags = IORESOURCE_MEM,        //代表内存资源
+    },
+    [2] = {
+        .start = SW_PAD_GPIO1_IO03_BASE,
+        .end   = SW_PAD_GPIO1_IO03_BASE + REGISTER_LENGTH - 1,
+        .flags = IORESOURCE_MEM,        //代表内存资源
+    },
+    [3] = {
+        .start = GPIO1_DR_BASE,
+        .end   = GPIO1_DR_BASE + REGISTER_LENGTH - 1,
+        .flags = IORESOURCE_MEM,        //代表内存资源
+    },
+    [4] = {
+        .start = GPIO1_GDIR_BASE,
+        .end   = GPIO1_GDIR_BASE + REGISTER_LENGTH - 1,
+        .flags = IORESOURCE_MEM,        //代表内存资源
+    },
+};
+
+/* platform设备结构体 */
+static struct platform_device leddevice = {
+    .name = "platform-led",                         //设备名
+    .id = -1,
+    .dev = {
+        .release = &led_release,
+    },
+    .num_resources = ARRAY_SIZE(led_resources),     //资源个数
+    .resource = led_resources,                      //资源
+};
+
+/* 入口函数 */
+static int __init leddevice_init(void)
+{
+    return platform_device_register(&leddevice);    //向内核注册platform设备
+}
+
+/* 出口函数 */
+static void __exit leddevice_exit(void)
+{
+    return platform_device_unregister(&leddevice);  //卸载platform设备
+}
+
+/* 注册和卸载驱动 */
+module_init(leddevice_init);
+module_exit(leddevice_exit);
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("bcl");
+```
+
+driver文件
+
+```c
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/io.h>
+#include <linux/cdev.h>
+#include <linux/device.h>
+#include <linux/platform_device.h>
+
+#define LEDDEV_CNT      1
+#define LEDDEV_NAME     "platformled"   /* 设备名字 */
+#define LEDOFF 0                        /* 关闭 */
+#define LEDON  1                        /* 开启 */
+
+/* 虚拟地址 */
+static void __iomem *IMX6ULL_CCM_CCGR1;
+static void __iomem *SW_MUX_GPIO1_IO03;
+static void __iomem *SW_PAD_GPIO1_IO03;
+static void __iomem *GPIO1_DR;
+static void __iomem *GPIO1_GDIR;
+
+/* LED设备结构体 */
+struct leddev_dev{
+    struct cdev cdev;       /* 字符设备 */
+    dev_t devid;            /* 设备号 */
+    struct class *class;    /* 类 */
+    struct device *device;  /* 设备 */
+    int major;              /* 主设备号 */
+    int minor;              /* 次设备号 */
+};
+
+struct leddev_dev leddev; /* led设备 */
+
+static void led_switch(u8 sta)
+{
+    u32 val = 0;
+
+    if(sta == LEDON){
+        val = readl(GPIO1_DR);
+        val &= ~(1 << 3);  //bit3置0，点亮LED
+        writel(val,GPIO1_DR);  
+    }else{
+        val = readl(GPIO1_DR);
+        val |= (1 << 3);  //bit3置1，熄灭LED
+        writel(val,GPIO1_DR);  
+    }
+}
+
+static int led_open(struct inode *inode, struct file *filp)
+{
+    filp->private_data = &leddev;       /* 设置私有数据 */
+    return 0;
+}
+
+static ssize_t led_write(struct file *filp, const char __user *buf,
+			 size_t count, loff_t *ppos)
+{
+    u32 ret;
+    u8 dataBuf[1];
+
+    ret = copy_from_user(dataBuf,buf,count);
+    if(ret != 0){
+        printk("kernel write failed\n");
+        return -EFAULT;
+    }
+
+    //根据dataBuf判断开灯还是关灯
+    led_switch(dataBuf[0]);
+    
+    return 0;
+}
+
+/* 设备操作函数 */
+static struct file_operations led_fops = {
+    .owner = THIS_MODULE,
+    .open = led_open,
+    .write = led_write,
+};
+
+static int led_probe(struct platform_device *dev)
+{
+    int i = 0;
+    struct resource *ledresource[5];
+    int ressize[5];
+    u32 val = 0;
+    int ret = 0;
+
+    printk("led driver and device has matched!\n");
+    printk("get resource num = %d\n",dev->num_resources);
+
+    /* 获取设备资源 */
+    for(i = 0;i < dev->num_resources;i++){
+        ledresource[i] = platform_get_resource(dev,IORESOURCE_MEM,i);
+        if(!ledresource[i]){
+            dev_err(&dev->dev,"No MEM resource for always on\n");
+            return -ENXIO;
+        }
+        ressize[i] = resource_size(ledresource[i]);
+    }
+
+    /* 初始化LED */
+
+    /* 初始化LED灯、地址映射、32位是4个字节 */
+    IMX6ULL_CCM_CCGR1 = ioremap(ledresource[0]->start,ressize[0]);
+    SW_MUX_GPIO1_IO03 = ioremap(ledresource[1]->start,ressize[1]);
+    SW_PAD_GPIO1_IO03 = ioremap(ledresource[2]->start,ressize[2]);
+    GPIO1_DR = ioremap(ledresource[3]->start,ressize[3]);
+    GPIO1_GDIR = ioremap(ledresource[4]->start,ressize[4]);
+
+    /* 初始化时钟 */
+    val = readl(IMX6ULL_CCM_CCGR1);
+    val &= ~(3 << 26);  //先清除bit26、27位
+    val |= (3 << 27);   //bit26、27位置1
+    writel(val,IMX6ULL_CCM_CCGR1);
+
+    writel(0x5,SW_MUX_GPIO1_IO03);  //设置复用
+    writel(0x10b0,SW_PAD_GPIO1_IO03); //设置电气属性
+
+    val = readl(GPIO1_GDIR);
+    val |= 1 << 3;  //bit3置1，设置为输出
+    writel(val,GPIO1_GDIR);
+
+    val = readl(GPIO1_DR);
+    val &= ~(1 << 3);  //bit3置0，点亮LED
+    writel(val,GPIO1_DR);
+
+    /* 申请设备号 */
+    if(leddev.major)
+    {
+        leddev.devid = MKDEV(leddev.major,0);
+        ret = register_chrdev_region(leddev.devid,1,LEDDEV_NAME);
+    }else{
+        ret = alloc_chrdev_region(&leddev.devid,0,1,LEDDEV_NAME);
+        leddev.major = MAJOR(leddev.devid);
+        leddev.minor = MINOR(leddev.devid);
+    }
+
+    if(ret < 0){
+        printk("leddev chrdev_region err!\n");
+        goto fail_devid;
+    }
+
+    printk("leddev major = %d,minor = %d\n",leddev.major,leddev.minor);
+    
+    /* 注册字符设备 */
+    leddev.cdev.owner = THIS_MODULE;
+    cdev_init(&leddev.cdev,&led_fops);
+    ret = cdev_add(&leddev.cdev, leddev.devid, 1);
+    if(ret < 0)
+        goto fail_cdev;
+
+    /* 自动添加设备节点 */
+    /* 添加类 */
+    leddev.class = class_create(THIS_MODULE,LEDDEV_NAME);
+    if(IS_ERR(leddev.class)){
+        ret = PTR_ERR(leddev.class);
+        goto fail_class;
+    }
+
+    /* 添加设备 */
+    leddev.device = device_create(leddev.class, NULL,
+			     leddev.devid, NULL,
+			     LEDDEV_NAME);
+    if(IS_ERR(leddev.device)){
+        ret = PTR_ERR(leddev.device);
+        goto fail_device;
+    }
+
+    return 0;
+
+fail_device:
+    device_destroy(leddev.class,leddev.devid);
+fail_class:
+    class_destroy(leddev.class);
+fail_cdev:
+    unregister_chrdev_region(leddev.devid,1);
+fail_devid:
+    return ret;
+}
+
+static int led_remove(struct platform_device *dev)
+{
+    /* 取消地址映射 */
+    iounmap(IMX6ULL_CCM_CCGR1);
+    iounmap(SW_MUX_GPIO1_IO03);
+    iounmap(SW_PAD_GPIO1_IO03);
+    iounmap(GPIO1_DR);
+    iounmap(GPIO1_GDIR);
+
+    /* 删除字符设备 */
+    cdev_del(&leddev.cdev);
+
+    /* 注销设备号 */
+    unregister_chrdev_region(leddev.devid,1);
+
+    /* 摧毁设备 */
+    device_destroy(leddev.class,leddev.devid);
+
+    /* 摧毁类 */
+    class_destroy(leddev.class);
+    return 0;
+}
+
+/* platform 驱动结构体 */
+static struct platform_driver led_driver = {
+    .driver = {
+        .name = "platform-led",
+    },
+    .probe = led_probe,
+    .remove = led_remove,
+};
+
+
+/* 入口函数 */
+static int __init leddriver_init(void)
+{
+    return platform_driver_register(&led_driver);    //向内核注册platform驱动
+}
+
+/* 出口函数 */
+static void __exit leddriver_exit(void)
+{
+    return platform_driver_unregister(&led_driver);  //卸载platform驱动
+}
+
+/* 注册和卸载驱动 */
+module_init(leddriver_init);
+module_exit(leddriver_exit);
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("bcl");
+```
+
+应用程序文件就是之前的ledAPP文件
+
+### 设备树platform驱动编写
+
+使用设备树只需要实现 platform_driver 即可。当然我们需要注意几点。
+
+1. 在设备树中创建设备节点，重点是要设置好 compatible 属性的值
+2. 编写 platform 驱动的时候要注意兼容属性，of_match_table 将会尤为重要
+3. 编写 platform 驱动，实现probe函数
+
+设备和驱动匹配完成后，设备信息会从设备树节点转为platform_device结构体。
+
+比如设备节点可以在platform_device结构体下获取。`gpioled.nd = dev->dev.of_node;`
+
+```c
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/io.h>
+#include <linux/cdev.h>
+#include <linux/device.h>
+#include <linux/platform_device.h>
+#include <linux/of.h>
+#include <linux/of_address.h>
+#include <linux/of_gpio.h>
+
+#define LEDDEV_CNT      1
+#define LEDDEV_NAME     "dtsplatformled"    /* 设备名字 */
+#define LEDOFF 0                            /* 关闭 */
+#define LEDON  1                            /* 开启 */
+
+/* LED设备结构体 */
+struct leddev_dev{
+    struct cdev cdev;           /* 字符设备 */
+    dev_t devid;                /* 设备号 */
+    struct class *class;        /* 类 */
+    struct device *device;      /* 设备 */
+    int major;                  /* 主设备号 */
+    int minor;                  /* 次设备号 */
+    struct device_node *nd;     /* 设备节点 */
+    int led_gpio;               /* led使用的GPIO编号 */
+};
+
+struct leddev_dev leddev; /* led设备 */
+
+static void led_switch(u8 sta)
+{
+    if(sta == LEDON){
+        gpio_set_value(leddev.led_gpio,0);
+    }else{
+        gpio_set_value(leddev.led_gpio,1);
+    }
+}
+
+static int led_open(struct inode *inode, struct file *filp)
+{
+    filp->private_data = &leddev;       /* 设置私有数据 */
+    return 0;
+}
+
+static ssize_t led_write(struct file *filp, const char __user *buf,
+			 size_t count, loff_t *ppos)
+{
+    u32 ret;
+    u8 dataBuf[1];
+
+    ret = copy_from_user(dataBuf,buf,count);
+    if(ret != 0){
+        printk("kernel write failed\n");
+        return -EFAULT;
+    }
+
+    //根据dataBuf判断开灯还是关灯
+    led_switch(dataBuf[0]);
+    
+    return 0;
+}
+
+/* 设备操作函数 */
+static struct file_operations led_fops = {
+    .owner = THIS_MODULE,
+    .open = led_open,
+    .write = led_write,
+};
+
+static int led_probe(struct platform_device *dev)
+{
+    int ret = 0;
+
+    printk("led driver and device has matched!\n");
+
+    /* 申请设备号 */
+    if(leddev.major)
+    {
+        leddev.devid = MKDEV(leddev.major,0);
+        ret = register_chrdev_region(leddev.devid,1,LEDDEV_NAME);
+    }else{
+        ret = alloc_chrdev_region(&leddev.devid,0,1,LEDDEV_NAME);
+        leddev.major = MAJOR(leddev.devid);
+        leddev.minor = MINOR(leddev.devid);
+    }
+
+    if(ret < 0){
+        printk("leddev chrdev_region err!\n");
+        goto fail_devid;
+    }
+
+    printk("leddev major = %d,minor = %d\n",leddev.major,leddev.minor);
+    
+    /* 注册字符设备 */
+    leddev.cdev.owner = THIS_MODULE;
+    cdev_init(&leddev.cdev,&led_fops);
+    ret = cdev_add(&leddev.cdev, leddev.devid, 1);
+    if(ret < 0)
+        goto fail_cdev;
+
+    /* 自动添加设备节点 */
+    /* 添加类 */
+    leddev.class = class_create(THIS_MODULE,LEDDEV_NAME);
+    if(IS_ERR(leddev.class)){
+        ret = PTR_ERR(leddev.class);
+        goto fail_class;
+    }
+
+    /* 添加设备 */
+    leddev.device = device_create(leddev.class, NULL,
+			     leddev.devid, NULL,
+			     LEDDEV_NAME);
+    if(IS_ERR(leddev.device)){
+        ret = PTR_ERR(leddev.device);
+        goto fail_device;
+    }
+
+    /* 设置LED所使用的GPIO */
+    /* 1.获取设备节点：gpioled */
+#if 0
+    leddev.nd = of_find_node_by_path("/gpioled");  //设备节点名
+    if(leddev.nd == NULL){
+        printk("gpioled node can't not found\n");
+        ret = -EINVAL;
+        goto fail_node;
+    }else{
+        printk("gpioled node has been found\n");
+    }
+#endif
+
+    leddev.nd = dev->dev.of_node;       //通过platform结构体获取设备节点
+
+    /* 2.获取设备树中的gpio属性，得到LED的编号 */
+    leddev.led_gpio = of_get_named_gpio(leddev.nd,"led-gpio",0);//根据设备树实际命名更改
+    if(leddev.led_gpio < 0){
+        printk("can't get led-gpio\n");
+        ret = -EINVAL;
+        goto fail_node;
+    }
+    printk("led-gpio num = %d\n",leddev.led_gpio);
+
+    /* 3.请求gpio */
+    ret = gpio_request(leddev.led_gpio,"led-gpio");
+    if(ret){
+        printk("can't request led-gpio\n");
+        goto fail_node;
+    }
+
+    /* 4.设置 GPIO1_IO03 为输出，并且输出高电平，默认关闭 LED 灯 */
+    ret = gpio_direction_output(leddev.led_gpio,1);
+    if(ret < 0){
+        printk("can't set gpio\n");
+        goto fail_setoutput;
+    }
+
+    return 0;
+
+fail_setoutput:
+    gpio_free(leddev.led_gpio);
+fail_node:
+    device_destroy(leddev.class,leddev.devid);
+fail_device:
+    device_destroy(leddev.class,leddev.devid);
+fail_class:
+    class_destroy(leddev.class);
+fail_cdev:
+    unregister_chrdev_region(leddev.devid,1);
+fail_devid:
+    return ret;
+}
+
+static int led_remove(struct platform_device *dev)
+{
+    /* 关闭LED，并释放 */
+    led_switch(LEDOFF);
+    gpio_free(leddev.led_gpio);
+
+    /* 删除字符设备 */
+    cdev_del(&leddev.cdev);
+
+    /* 注销设备号 */
+    unregister_chrdev_region(leddev.devid,1);
+
+    /* 摧毁设备 */
+    device_destroy(leddev.class,leddev.devid);
+
+    /* 摧毁类 */
+    class_destroy(leddev.class);
+    return 0;
+}
+
+/* 匹配列表 */
+static const struct of_device_id led_of_match[] = {
+    {.compatible = "atkalpha-gpioled"},
+    {/* Sentinel */},
+};
+
+/* platform 驱动结构体 */
+static struct platform_driver led_driver = {
+    .driver = {
+        .name = "dtsplatform-led",          /* 驱动名字，用于和设备匹配 */
+        .of_match_table = led_of_match,     /* 设备树匹配表 */
+    },
+    .probe = led_probe,
+    .remove = led_remove,
+};
+
+
+/* 入口函数 */
+static int __init leddriver_init(void)
+{
+    return platform_driver_register(&led_driver);    //向内核注册platform驱动
+}
+
+/* 出口函数 */
+static void __exit leddriver_exit(void)
+{
+    return platform_driver_unregister(&led_driver);  //卸载platform驱动
+}
+
+/* 注册和卸载驱动 */
+module_init(leddriver_init);
+module_exit(leddriver_exit);
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("bcl");
+```
+
+## Linux自带LED驱动实验
+
+### 使能Linux内核自带LED驱动
+
+内核中自带LED驱动，需要通过图形化配置。
+
+在Linux源码下`make menuconfig`
+
+按照下述路径完成配置
+
+```
+-> Device Drivers 
+	-> LED Support (NEW_LEDS [=y])
+		->LED Support for GPIO connected LEDs
+```
+
+配置完成后，可以在.config中找到“CONFIG_LEDS_GPIO=y”，说明使能LED驱动成功。
+
+重新编译，使用新编译的zImage镜像重新启动开发板。
+
+### LED 驱动框架分析
+
+LED 灯驱动文件为/drivers/leds/leds-gpio.c
+
+LED 驱动的匹配表，此表只有一个匹配项，compatible 内容为“gpio-leds”，因此设备树中的 LED 灯设备节点的 compatible 属性值也要为“gpio-leds”，否则设备和驱动匹 配不成功，驱动就没法工作。
+
+### 设备树节点编写
+
+打开文档 Documentation/devicetree/bindings/leds/leds-gpio.txt，此文档详细的讲解了 Linux 自带驱动对应的设备树节点该如何编写。
+
+①、创建一个节点表示 LED 灯设备，比如 dtsleds，如果板子上有多个 LED 灯的话每个 LED 灯都作为 dtsleds 的子节点。 
+
+②、dtsleds 节点的 compatible 属性值一定要为“gpio-leds”。 
+
+③、设置 label 属性，此属性为可选，每个子节点都有一个 label 属性，label 属性一般表示 LED 灯的名字，比如以颜色区分的话就是 red、green 等等。 
+
+④、每个子节点必须要设置 gpios 属性值，表示此 LED 所使用的 GPIO 引脚！
+
+⑤、可以设置“linux,default-trigger”属性值，也就是设置 LED 灯的默认功能，可以查阅 Documentation/devicetree/bindings/leds/common.txt 这个文档来查看可选功能，比如： 
+
+backlight：LED 灯作为背光。
+
+default-on：LED 灯打开 
+
+heartbeat：LED 灯作为心跳指示灯，可以作为系统运行提示灯。 
+
+ide-disk：LED 灯作为硬盘活动指示灯。 
+
+timer：LED 灯周期性闪烁，由定时器驱动，闪烁频率可以修改 
+
+⑥、可以设置“default-state”属性值，可以设置为 on、off 或 keep，为 on 的时候 LED 灯默 认打开，为 off 的话 LED 灯默认关闭，为 keep 的话 LED 灯保持当前模式。
+
+比如可以在设备树中添加下述设备节点：
+
+```
+dtsled {
+	compatible = "gpio-leds";					//兼容属性
+
+	led0 {
+		label = "red";							//标记为红色
+		gpios = <&gpio1 3 GPIO_ACTIVE_LOW>;		//使用的GPIO和有效电平
+		default-state = "on";					//默认状态开启
+		linux,default-trigger = "heartbeat";	//触发模式为心跳
+	};
+};
+```
+
+```shell
+LED驱动操作
+/sys/devices/platform/dtsled/leds/red # echo 0 > brightness	//关灯
+/sys/devices/platform/dtsled/leds/red # echo 1 > brightness	//开灯
+/sys/devices/platform/dtsled/leds/red # echo heartbeat > trigger	//心跳模式
+/sys/devices/platform/dtsled/leds/red # echo none > trigger	//取消所有模式
+```
+
+## Linux UART驱动实验
+
+在I.MX6U-ALPHA 开发板上的UART3可以实现TTL、RS232、RS485通信，还可以驱动GPS。
+
+### Linux下UART驱动框架
+
+驱动已经由NXP实现，我们真正要做的就是在设备树中添加所要使用的串口节点信息。当系统启动以后串口驱动和设备匹配成功，相应的串口就会被驱动起来，生成 /dev/ttymxcX(X=0….n)文件。
+
+串口１为ttymxc０，以此类推。
+
+下面三个结构体的定义都在include/linux/serial_core.h中
+
+1、uart_driver 注册与注销
+
+2、uart_port 的添加与移除
+
+3、uart_ops 实现
+
+### I.MX6U UART 驱动分析
+
+打开 imx6ull.dtsi 文件，找到 UART3 对应的子节点，子节点内容如下所示：
+
+```
+uart3: serial@021ec000 {
+	compatible = "fsl,imx6ul-uart",
+				"fsl,imx6q-uart", "fsl,imx21-uart";
+	reg = <0x021ec000 0x4000>;
+	interrupts = <GIC_SPI 28 IRQ_TYPE_LEVEL_HIGH>;
+	clocks = <&clks IMX6UL_CLK_UART3_IPG>,
+			&clks IMX6UL_CLK_UART3_SERIAL>;
+	clock-names = "ipg", "per";
+	dmas = <&sdma 29 4 0>, <&sdma 30 4 0>;
+	dma-names = "rx", "tx";
+	status = "disabled";
+};
+```
+
+compatible属性有三个值："fsl,imx6ul-uart","fsl,imx6q-uart", "fsl,imx21-uart"
+
+在 linux 源码中搜索这三个值即可找到对应的 UART 驱动文件，此文件为 drivers/tty/serial/imx.c
+
+为什么imx6ull的tty名字都为ttymxcX？在imx.c中定义了宏`#define DEV_NAME     "ttymxc"`
+
+### 修改设备树
+
+**UART3 IO 节点创建**
+
+UART3 用到了UART3_TXD 和UART3_RXD 这两个IO，因此要先在 iomuxc 中创建UART3 对应的 pinctrl 子节点，在 iomuxc 中添加如下内容：
+
+```
+pinctrl_uart3: uart3grp {
+	fsl,pins = <
+		MX6UL_PAD_UART3_TX_DATA__UART3_DCE_TX	0x1b0b1
+		MX6UL_PAD_UART3_RX_DATA__UART3_DCE_RX	0x1b0b1
+	>;
+};
+```
+
+在imx6ull-alientek-emmc.dts中，uart2使用了uart3的IO，所以要将uart2中的关于uart3的io屏蔽一下，或者直接disable串口2。
+
+**添加 uart3 节点**
+
+```
+&uart3 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart3>;
+	status = "okay";
+};
+```
+
+完成以后重新编译设备树并使用新的设备树启动 Linux，如果设备树修改成功的话，系统启动以后就会生成一个名为“/dev/ttymxc2”的设备文件，ttymxc2 就是 UART3 对应的设备文 件，应用程序可以通过访问 ttymxc2 来实现对 UART3 的操作。
+
+### minicom
+
+#### 移植 ncurses
+
+1. 将 ncurses-6.0.tar.gz 拷贝到 Ubuntu 中创建的 tool 目录下，路径为：1、例程源码-》7、第三方库源码-》ncurses-6.0.tar.gz
+
+2. 创建名为ncurses的文件夹
+
+3. `tar -vxzf ncurses-6.0.tar.gz`解压，生成ncurses-6.0文件夹，cd到ncurses-6.0文件夹中
+
+4. 输入`./configure --prefix=/home/bcl/tool/ncurses --host=arm-linux-gnueabihf --target=arm-linux-gnueabihf --with-shared --without-profile --disable-strpping --without-progs --with-manpages --without-tests`
+
+5. 执行make命令
+
+6. 执行make install命令
+
+7. 在ncurses目录下将include、lib 和 share 这三个目录中存放的文件拷贝到开发板文件系统中
+
+    ```shell
+    sudo cp lib/* /home/bcl/nfs/rootfs/usr/lib/ -rfa
+    sudo cp share/* /home/bcl/nfs/rootfs/usr/share/ -rfa
+    sudo cp include/* /home/bcl/nfs/rootfs/usr/include/ -rfa
+    ```
+
+7. 然后在开发板根目录的/etc/profile文件（没有就自行创建）中添加如下所示内容：
+
+    ```
+    #!/bin/sh
+    LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
+    export LD_LIBRARY_PATH
+    export TERM=vt100
+    export TERMINFO=/usr/share/terminfo
+    ```
+
+#### 移植minicom
+
+1. 将 minicom-2.7.1.tar.gz 拷贝到 ubuntu 中的tool 目录下，路径为：1、例 程源码-》7、第三方库源码-》minicom-2.7.1.tar.gz
+
+2. 创建名为minicom的文件夹
+
+3. `tar -vxzf minicom-2.7.1.tar.gz`解压，生成minicom-2.7.1 的文件夹，cd进minicom-2.7.1文件夹
+
+4. 输入`./configure CC=arm-linux-gnueabihf-gcc --prefix=/home/bcl/tool/minicom --host=arm-linux-gnueabihf CPPFLAGS=-I/home/bcl/tool/ncurses/include LDFLAGS=-L/home/bcl/tool/ncurses/lib -enable-cfg-dir=/etc/minicom`
+
+5. 执行make命令
+
+6. 执行make install命令
+
+7. 将 minicom 目录中 bin 子目录下的所有文件拷贝到开发板根目录中的/usr/bin 目录下
+
+    `sudo cp bin/* /home/bcl/nfs/rootfs/usr/bin/`
+
+7. 完成以后在开发板中输入“minicom-v”来查看 minicom 工作是否正常
+
+8. 新建/etc/passwd 文件，然后在 passwd 文件里面输入如下所示内容
+
+    `root:x:0:0:root:/root:/bin/sh`
+
+9. 完成以后重启开发板！
+10. 开发板重启以后再执行“minicom -s”命令，此时 minicom 配置界面就可以打开了
+
+#### minicom 设置
+
+在开发板中输入“minicom -s”，打开 minicom 配置界面，然后选中“Serial port setup”
+
+设置方法就是按下键盘上的‘A’， 然后输入“/dev/ttymxc2”即可
+
+打开回显，Ctrl+A Z，回显功能配置项为“local Echo on/off..E”，因此按下 E 即可打开/关闭回显功能。
+
+退出minicom，Ctrl+A Z Q

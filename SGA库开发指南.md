@@ -6,7 +6,7 @@
 
 项目链接：[PoisonNF/SGA_Demo: Repair and test of SGA Library. (github.com)](https://github.com/PoisonNF/SGA_Demo)
 
-例程链接：https://pan.baidu.com/s/1JgBmoi0GzMfA20Ahl1H5_A  提取码：jao9
+例程链接：[PoisonNF/SGA-SampleCode: SGA库的示例代码 (github.com)](https://github.com/PoisonNF/SGA-SampleCode)
 
 ***
 
