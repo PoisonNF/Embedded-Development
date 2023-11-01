@@ -474,6 +474,39 @@ c. 使用文本编辑器打开设备树文件，查找 `chosen` 节点下的 `st
 d. 修改 `stdout-path` 属性中的串口和波特率设置，例如从 `&uart1` 修改为 `&uart2`
 e. 保存并关闭设备树文件，重启设备，在Uboot中更改bootargs中串口的选择。
 
+## 制作过程中遇到的问题
+
+### BTB附近的磁珠电路无效
+
+![image-20231031164354792](./IMX6ULL开发.assets/image-20231031164354792.png)
+
+该图为BTB供电部分的原理图，在实际焊接过程中发现L2磁珠靠近CORE_5V端电压一直在波动，最后为了给核心板供电，选择将L2短路，VCC_5V直接接入核心板。
+
+### 能识别PHY芯片但是无法ping通
+
+我发现在uboot阶段无法通过TFTP下载内核镜像和设备树，后面对I.MX6u底板BTB接口重新加锡焊接，解决了这个问题，如果再次遇到还是要先检查硬件焊接。SMT可以跳过此步骤。
+
+### 原有模块无法加载
+
+```shell
+/lib/modules/4.1.15 # modprobe gpioled.ko
+gpioled: disagrees about version of symbol device_create
+gpioled: Unknown symbol device_create (err -22)
+gpioled: disagrees about version of symbol device_destroy
+gpioled: Unknown symbol device_destroy (err -22)
+gpioled: disagrees about version of symbol device_create
+gpioled: Unknown symbol device_create (err -22)
+gpioled: disagrees about version of symbol device_destroy
+gpioled: Unknown symbol device_destroy (err -22)
+modprobe: can't load module gpioled.ko (gpioled.ko): Invalid argument
+```
+
+**解决核心思想**：`内核版本与模块版本不一致造成，更改版本一致即可解决`。
+
+如上所示的gpioled.ko模块，在Ubuntu中重新编译发送到开发板根文件系统后可以正常加载。
+
+[解决disagrees about version of symbol device_create_CinzWS的博客-CSDN博客](https://blog.csdn.net/qq_37619128/article/details/124346470)
+
 # 正点原子IMX6ULL应用编程
 
 ## Poky 交叉编译工具链
@@ -668,7 +701,21 @@ bootz 80800000 - 83000000	//启动内核
 
 
 
-分区0 Uboot 分区1 zImage 和 dtb 分区2 根文件系统
+分区0(mmc 1:0) Uboot 
+
+分区1(mmc 1:1) zImage 和 dtb 
+
+分区2(mmc 1:2) 根文件系统
+
+
+
+默认Uboot启动bootcmd为
+
+```
+bootcmd=run findfdt;mmc dev ${mmcdev};mmc dev ${mmcdev}; if mmc rescan; then if run loadbootscript; then run bootscript; else if run loadimage; then run mmcboot; else run netboot; fi; fi; else run netboot; fi
+
+setenv bootcmd 'run findfdt;mmc dev ${mmcdev};mmc dev ${mmcdev}; if mmc rescan; then if run loadbootscript; then run bootscript; else if run loadimage; then run mmcboot; else run netboot; fi; fi; else run netboot; fi'
+```
 
 ### 使用网络启动Linux
 
@@ -1706,7 +1753,9 @@ dtb        zImage-imx6ull-14x14-evk-emmc.dtb
 
 rootfs    rootfs_nogpu.tar.bz2
 
-对rootfs进行打包
+==重点！重点！重点！==
+
+这里打包文件时，切记一定要在rootfs文件夹内打包。不能在文件夹外部打包，因为tar打包命令默认是不会打包隐藏文件的。直接在文件夹外面打包的根文件系统在后期烧写进I.MX6ull时会导致系统内核崩溃，不能正常进入。
 
 ```shell
 cd rootfs/
@@ -1754,6 +1803,47 @@ route add default gw 192.168.5.1
 
 这个看正点原子视频
 
+## 安装dropbear 用于SSH（没成功）
+
+需要的文件
+
+**dropbear-2022.83.tar.bz2**
+
+**zlib-1.2.11.tar.gz**
+
+### 安装zlib
+
+解压压缩包，进入 zlib-1.2.11 目录，对其进行编译前的配置
+
+`prefix=/home/bcl/tool/zlib/ CC=arm-linux-gnueabihf-gcc CFLAGS="-static -fPIC" ./configure `
+
+然后 **make** 即可编译完成，而后 **make install** 将其安装在上面配置的 **prefix** 文件夹。
+
+### 安装dropbear
+
+解压压缩包，进入 dropbear-2022.83 目录，对其进行编译前的配置：
+
+`./configure --prefix=/home/bcl/tool/dropbear --with-zlib=/home/bcl/tool/zlib CC=arm-linux-gnueabihf-gcc --host=arm --enable-static`
+
+然后 **make** 即可编译完成，而后 **make install** 将其安装在上面配置的 **prefix** 文件夹。
+
+### 使用
+
+1. 将dropbear下的文件复制到嵌入式根文件系统/usr下
+
+    `dropbear/bin`下文件复制到 `/usr/bin`目录下，`dropbear/sbin`下文件复制到 `/usr/sbin` 目录下
+
+2. 在文件系统的 /etc目录下新建 `dropbear` 目录（只能是 `dropbear` 这个名称 ），使用 **dropbearkey** 命令生成密钥
+
+    `dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key`
+
+    从私钥中提出公钥
+
+    `dropbearkey -y -f dropbear_rsa_host_key | grep "^ssh-rsa " >> authorized_keys`
+
+3. 设置 **root** 用户密码，运行 **dropbear** 即可。
+
+
 # 正点原子IMX6ULL驱动编程
 
 ## 调试时Uboot配置
@@ -1780,7 +1870,7 @@ saveenv
 
 ### 驱动模块的加载和卸载
 
-Linux 驱动有两种运行方式，第一种就是将驱动编译进 Linux 内核中，这样当 Linux 内核启 动的时候就会自动运行驱动程序。第二种就是将驱动编译成模块(Linux 下模块扩展名为.ko)，在 Linux 内核启动以后使用“insmod”命令加载驱动模块。
+Linux 驱动有两种运行方式，第一种就是将驱动编译进 Linux 内核中，这样当 Linux 内核启动的时候就会自动运行驱动程序。第二种就是将驱动编译成模块(Linux 下模块扩展名为.ko)，在 Linux 内核启动以后使用“insmod”命令加载驱动模块。
 
 ```c
 /* 驱动入口函数 */
@@ -8154,7 +8244,7 @@ pinctrl_uart3: uart3grp {
 
 7. 然后在开发板根目录的/etc/profile文件（没有就自行创建）中添加如下所示内容：
 
-    ```
+    ```shell
     #!/bin/sh
     LD_LIBRARY_PATH=/lib:/usr/lib:$LD_LIBRARY_PATH
     export LD_LIBRARY_PATH
@@ -8193,8 +8283,565 @@ pinctrl_uart3: uart3grp {
 
 在开发板中输入“minicom -s”，打开 minicom 配置界面，然后选中“Serial port setup”
 
-设置方法就是按下键盘上的‘A’， 然后输入“/dev/ttymxc2”即可
+设置方法就是按下键盘上的‘A’， 然后输入“/dev/ttymxc2”即可，再关闭硬件流控。
 
 打开回显，Ctrl+A Z，回显功能配置项为“local Echo on/off..E”，因此按下 E 即可打开/关闭回显功能。
 
 退出minicom，Ctrl+A Z Q
+
+![image-20231024215303165](./IMX6ULL开发.assets/image-20231024215303165.png)
+
+## Linux WiFi驱动实验
+
+### WIFI驱动添加和编译
+
+开发板支持两种接口的WiFi：USB、SDIO。
+
+USB为RTL8188EUS或 RTL8188CUS，两个芯片的驱动不同、SDIO为RTL8189FS。
+
+### 向 Linux 内核添加 WIFI 驱动
+
+#### RTL81xx驱动文件浏览
+
+路径1、例程源码->5、模块驱动源码->1、 RTL8XXX WIFI 驱动源码-> realtek。
+
+Kconfig 文件是 WIFI 驱动的配置界面文档。
+
+#### 删除Linux内核自带的RTL8192驱动
+
+linux 内核自带的RTL8192驱动驱动不稳定！
+
+打开 drivers/net/wireless/rtlwifi/Kconfig，删除以下内容
+
+```
+onfig RTL8192CU
+        tristate "Realtek RTL8192CU/RTL8188CU USB Wireless Network Adapter"
+        depends on USB
+        select RTLWIFI
+        select RTLWIFI_USB
+        select RTL8192C_COMMON
+        ---help---
+        This is the driver for Realtek RTL8192CU/RTL8188CU 802.11n USB
+        wireless network adapters.
+
+        If you choose to build it as a module, it will be called rtl8192cu
+```
+
+继续打开 drivers/net/wireless/rtlwifi/Makefile，屏蔽以下内容
+
+`obj-$(CONFIG_RTL8192CU)		+= rtl8192cu/`
+
+#### 将 RTL81xx 驱动添加到 Linux 内核中
+
+将 realtek 整个目录拷贝到 ubuntu 下 Linux 内核源码中的 drivers/net/wireless 目录下
+
+#### 修改 drivers/net/wireless/Kconfig
+
+打开 drivers/net/wireless/Kconfig，在里面加入下面这一行内容： 
+
+`source "drivers/net/wireless/realtek/Kconfig"`
+
+这样 WIFI 驱动的配置界面才会出现在 Linux 内核配置界面上。
+
+#### 修改 drivers/net/wireless/Makefile
+
+打开 drivers/net/wireless/Makefile，在里面加入下面一行内容： 
+
+`obj-y += realtek/`
+
+### 配置 Linux 内核
+
+#### 配置 USB 支持设备
+
+```
+-> Device Drivers 
+	-> <*> USB support
+		-> <*> Support for Host-side USB 
+			-> <*> EHCI HCD (USB 2.0) support
+			-> <*> OHCI HCD (USB 1.1) support 
+			-> <*> ChipIdea Highspeed Dual Role Controller 
+				-> [*] ChipIdea device controller
+				-> [*] ChipIdea host controller 
+```
+
+#### 配置支持 WIFI 设备
+
+```
+-> Device Drivers 
+	-> [*] Network device support 
+		-> [*] Wireless LAN
+			-> <*> IEEE 802.11 for Host AP (Prism2/2.5/3 and WEP/TKIP/CCMP) 
+				-> [*] Support downloading firmware images with Host AP driver
+				-> [*] Support for non-volatile firmware download
+```
+
+#### 配置支持 IEEE 802.11
+
+```
+-> Networking support 
+	-> -*- Wireless 
+ 		-> [*] cfg80211 wireless extensions compatibility 
+		-> <*> Generic IEEE 802.11 Networking Stack (mac80211)
+```
+
+配置好以后重新编译一下 Linux 内核，得到新的 zImage，后面使用新编译出来的 zImage 启动系统。
+
+拷贝新的Linux内核`cp arch/arm/boot/zImage /home/bcl/tftpboot/ -f`
+
+### 编译 WIFI 驱动
+
+执行“make menuconfig”命令，选择将 rtl81xx驱动编译为模块：
+
+```
+-> Device Drivers 
+	-> Network device support (NETDEVICES [=y]) 
+ 		-> Wireless LAN (WLAN [=y]) 
+			 -> Realtek wifi (REALTEK_WIFI [=m]) 
+ 				-> <M> rtl8189ftv sdio wifi 
+				-> <M> rtl8188eus usb wifi 
+				-> <M> Realtek 8192C USB WiFi
+```
+
+可以使用`make modules -j12`编译驱动模块，当然也可以make all -j12编译整个内核。
+
+编译完成以后就会在 rtl8188EUS、rtl8189FS 和 rtl8192CU 文件夹下分别生成 8188eu.ko、 8189fs.ko 和 8192cu.ko 这三个.ko 文件。
+
+将三个.ko文件拷贝到开发板根文件系统下的/lib/modules/4.1.15中，供后续加载使用。
+
+### 驱动加载测试
+
+#### RTL8188 USB WIFI 驱动测试
+
+在lib/modules/4.1.15目录中，输入以下命名加载模块
+
+```shell
+depmod #第一次加载驱动的时候需要运行此命令
+modprobe 8188eu.ko #RTL8188EUS 模块加载 8188eu.ko 模块
+```
+
+如果驱动加载成功的话会显示
+
+```shell
+/lib/modules/4.1.15 # modprobe 8188eu.ko
+RTL871X: module init start
+RTL871X: rtl8188eu v4.3.0.9_15178.20150907
+RTL871X: build time: Oct 24 2023 23:03:26
+usbcore: registered new interface driver rtl8188eu
+RTL871X: module init ret=0
+```
+
+输入“ifconfig -a”命令，查看 wlanX(X=0….n)网卡是否存在，一般都是 wlan0，除非板子上有多个 WIFI 模块在工作。如果发现没有wlan0，可以试着重启开发板。
+
+### wireless tools 工具移植与测试
+
+#### wireless tools 移植
+
+路径为：1、例程源码-》7、第三方库源码-》iwlist_for_visteon-master.tar.bz2
+
+拷贝完成以后将其解压，生成 iwlist_for_visteon-master 文件夹。
+
+打开 Makefile 文件，修改 Makefile 中的 CC、AR 和 RANLIB 这三个变量
+
+```makefile
+## Compiler to use (modify this for cross compile).
+CC = arm-linux-gnueabihf-gcc
+## Other tools you need to modify for cross compile (static lib only).
+AR = arm-linux-gnueabihf-ar
+RANLIB = arm-linux-gnueabihf-ranlib
+```
+
+```shell
+make clean #先清理一下工程
+make #编译
+```
+
+编译完成以后就会在当前目录下生成 iwlist、iwconfig、iwspy、iwpriv、ifrename 这 5 个工具，另外还有很重要的 libiw.so.29 这个库文件。将这 5 个工具拷贝到开发板根文件系统下的/usr/bin 目录中，将 libiw.so.29 这个库文件拷贝到开发板根文件系统下的/usr/lib 目录中
+
+```shell
+sudo cp iwlist iwconfig iwspy iwpriv ifrename /home/bcl/nfs/rootfs/usr/bin/ -f
+sudo cp libiw.so.29 /home/bcl/nfs/rootfs/usr/lib/ -f
+```
+
+#### wireless tools 工具测试
+
+先加载模块，打开wlan0网卡
+
+```shell
+modprobe 8188eu.ko #加载 RTL8188 驱动模块
+ifconfig wlan0 up #打开 wlan0 网卡
+```
+
+wlan0 网卡打开以后就可以使用 iwlist 命令查找当前环境下的 WIFI 热点信息
+
+`iwlist wlan0 scan`
+
+要想连接到指定的 WIFI 热点上就需要用到 wpa_supplicant 工具，所以接下来就是移植此工具。
+
+### wpa_supplicant 移植
+
+#### openssl 移植
+
+路径为：1、例程源码-》7、第三方库源码-》openssl-1.1.1d.tar.gz
+
+解压完成以后就会生成一个名为 openssl-1.1.1d 的目录，然后在新建一个名为“openssl”的 文件夹，用于存放 openssl 的编译结果。
+
+进入到解压出来的 openssl-1.1.1d 目录中，然后执行如下命令进行配置：
+
+`./Configure linux-armv4 shared no-asm --prefix=/home/bcl/tool/openssl  CROSS_COMPILE=arm-linux-gnueabihf`
+
+上述配置中“linux-armv4”表示 32 位 ARM 凭条，并没有“linux-armv7”这个选项。
+
+```shell
+make 
+make install
+```
+
+将 lib 目录下的 libcrypto 和 libssl 库拷贝到开发 板根文件系统中的/usr/lib 目录下
+
+```shell
+sudo cp ./lib/libcrypto.so* /home/bcl/nfs/rootfs/lib/ -af
+sudo cp ./lib/libssl.so* /home/bcl/nfs/rootfs/lib/ -af
+```
+
+#### libnl 库移植
+
+在编译 libnl 之前Ubuntu先安装 biosn 和 flex，命令如下：
+
+```shell
+sudo apt-get install bison
+sudo apt-get install flex
+```
+
+wpa_supplicant 也依赖于 libnl，路径为：1、例程源码-》7、第三方库源码-》libnl-3.2.23.tar.gz
+
+得到解压完成以后会得到 libnl-3.2.23 文件夹，然后在新建一个名为“libnl”的文件夹，用 于存放 libnl 的编译结果。
+
+进入到 libnl-3.2.23 文件夹中，然后执行如下命令进行配置： 
+
+`./configure --host=arm-linux-gnueabihf --prefix=/home/bcl/tool/libnl/`
+
+```shell
+make 
+make install
+```
+
+编译完成后，将 lib 目录下的所有文件拷贝到开发板根文件系统的/usr/lib 目录下，命令如下所示：
+
+```shell
+sudo cp lib/* /home/bcl/nfs/rootfs/usr/lib/ -rf
+```
+
+#### wpa_supplicant 移植
+
+路径为： 1、例程源码->7、第三方库源码->wpa_supplicant-2.7.tar.gz
+
+解压完成以后会得到 wpa_supplicant-2.7 文件夹
+
+wpa_supplicant 的配置比较 特殊，需要将 wpa_supplicant 下的 defconfig 文件拷贝一份并重命名为.config
+
+```shell
+cd wpa_supplicant/
+cp defconfig .config
+```
+
+完成以后打开.config 文件，在里面指定交叉编译器、openssl、libnl 库和头文件路径
+
+```shell
+#openssl 库和头文件路径
+CC = arm-linux-gnueabihf-gcc
+CFLAGS += -I/home/bcl/tool/openssl/include
+LIBS += -L/home/bcl/tool/openssl/lib -lssl -lcrypto
+
+#libnl 库和头文件路径
+CFLAGS += -I/home/bcl/tool/libnl/include/libnl3
+LIBS += -L/home/bcl/tool/libnl/lib
+```
+
+config 文件配置好以后就可以编译 wpa_supplicant 了，使用如下命令编译：
+
+```shell
+export PKG_CONFIG_PATH=/home/zuozhongkai/linux/IMX6ULL/tool/libnl/lib/pkgconfig:$PKG_CONFIG_PATH #指定 libnl 库 pkgconfig 包位置
+make -j12 #编译
+```
+
+编译完成以后就会在本目录下生成 wpa_supplicant 和 wpa_cli 这两个软件，这两个文件拷贝到开发板根文件系统的/usr/bin 目录中
+
+`sudo cp wpa_cli wpa_supplicant /home/bcl/nfs/rootfs/usr/bin/ -f`
+
+拷贝完成以后重启开发板！输入“wpa_supplicant -v”命令查看一下 wpa_supplicant 版本号。
+
+```shell
+/ # wpa_supplicant -v
+wpa_supplicant v2.7
+Copyright (c) 2003-2018, Jouni Malinen <j@w1.fi> and contributors
+```
+
+### WIFI 联网测试
+
+联网步骤：
+
+①、插上 WIFI 模块
+
+②、加载 RTL8188 或者 RTL8189 驱动模块
+
+③、使用 ifconfig 命令打开对应的无线网卡
+
+④、无线网卡打开以后使用 iwlist 命令扫描当前环境下的 WIFI 热点
+
+当上述步骤确认无误以后就可以使用 wpa_supplicant 来将 WIFI 连接到指定的热点上
+
+```shell
+cd /lib/modules/4.1.15
+modprobe 8188eu.ko 
+ifconfig wlan0 up
+iwlist wlan0 scan
+wpa_supplicant -D wext -c /etc/wpa_supplicant.conf -i wlan0 &
+udhcpc -i wlan0
+```
+
+#### 最后联网一些步骤
+
+1. 先在开发板根文件系统的/etc 目录下创建一 个名为“wpa_supplicant.conf”的配置文件
+
+```
+ctrl_interface=/var/run/wpa_supplicant
+ap_scan=1
+network={
+ ssid="sigma209"
+ psk="sigma337"
+}
+```
+
+2. 在开发板根文件系统下创建一个 “/var/run/wpa_supplicant”目录
+
+    `mkdir /var/run/wpa_supplicant -p`
+
+3. 一切准备好以后就可以使用 wpa_supplicant 工具让 RTL8188 USB WIFI 连接到热点上
+
+    `wpa_supplicant -D wext -c /etc/wpa_supplicant.conf -i wlan0 &`
+
+    输出出“wlan0: CTRL-EVENTCONNECTED”字样代表连接成功。
+
+4. 设置 wlan0 的 IP 地址，这里使用 udhcpc 命令从路由器申请 IP 地址
+    `udhcpc -i wlan0`
+    如果获取成功显示
+
+    ```shell
+    /usr/share/udhcpc # udhcpc -i wlan0
+    udhcpc: started, v1.29.0
+    Setting IP address 0.0.0.0 on wlan0
+    udhcpc: sending discover
+    udhcpc: sending select for 192.168.1.114
+    udhcpc: lease of 192.168.1.114 obtained, lease time 7200
+    Setting IP address 192.168.1.114 on wlan0
+    Deleting routers
+    route: SIOCDELRT: No such process
+    Adding router 192.168.1.1
+    Recreating /etc/resolv.conf
+     Adding DNS server 210.32.32.1
+     Adding DNS server 210.32.32.10
+    ```
+
+    如果出现以下情况，需要额外做几步操作
+
+    ```shell
+    /lib/modules/4.1.15 # udhcpc -i wlan0
+    udhcpc: started, v1.29.0
+    udhcpc: sending discover
+    udhcpc: sending select for 192.168.1.114
+    udhcpc: lease of 192.168.1.114 obtained, lease time 7200
+    /lib/modules/4.1.15 # ping -I 192.168.1.114 www.baidu.com	#无法为wlan0分配IP
+    
+    /lib/modules/4.1.15 # ifconfig
+    eth0      Link encap:Ethernet  HWaddr B8:AE:1D:01:00:00
+              inet addr:192.168.5.9  Bcast:192.168.5.255  Mask:255.255.255.0
+              inet6 addr: fe80::baae:1dff:fe01:0/64 Scope:Link
+              UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+              RX packets:5128 errors:0 dropped:0 overruns:0 frame:0
+              TX packets:2033 errors:0 dropped:0 overruns:0 carrier:0
+              collisions:0 txqueuelen:1000
+              RX bytes:6629570 (6.3 MiB)  TX bytes:328358 (320.6 KiB)
+    
+    lo        Link encap:Local Loopback
+              inet addr:127.0.0.1  Mask:255.0.0.0
+              inet6 addr: ::1/128 Scope:Host
+              UP LOOPBACK RUNNING  MTU:65536  Metric:1
+              RX packets:2 errors:0 dropped:0 overruns:0 frame:0
+              TX packets:2 errors:0 dropped:0 overruns:0 carrier:0
+              collisions:0 txqueuelen:0
+              RX bytes:174 (174.0 B)  TX bytes:174 (174.0 B)
+    
+    wlan0     Link encap:Ethernet  HWaddr 00:0F:00:40:23:49
+              inet6 addr: fe80::20f:ff:fe40:2349/64 Scope:Link	#IP不是设定的192.168.1.114
+              UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+              RX packets:94 errors:0 dropped:6 overruns:0 frame:0
+              TX packets:11 errors:0 dropped:2 overruns:0 carrier:0
+              collisions:0 txqueuelen:1000
+              RX bytes:23102 (22.5 KiB)  TX bytes:1819 (1.7 KiB)
+    ```
+
+    使用下面这个教程来解决，亲测有效。
+
+    [嵌入式Linux：解决busybox udhcpc获取IP但没有设置系统DNS的问题_udhcpc dns-CSDN博客](https://blog.csdn.net/weixin_44498318/article/details/120123965)
+
+### 开机自动打开WiFi并且联网
+
+可以对rcS文件进行修改，使得WiFi开机自启动，并且联网。
+
+rcS文件位于/etc/init.d下。
+
+增加内容为
+
+```shell
+cd /lib/modules/4.1.15		#移动到模组目录
+modprobe 8188eu.ko			#装载WiFi驱动
+ifconfig wlan0 up			#打开wlan0
+iwlist wlan0 scan			#扫描附近的WiFi
+wpa_supplicant -D wext -c /etc/wpa_supplicant.conf -i wlan0 &	#执行.conf文件连接WiFi，更改连接WiFi改wpa_supplicant.conf这个文件
+#udhcpc -i wlan0			//动态分配
+ifconfig wlan0 192.168.5.8 netmask 255.255.255.0	#手动分配，设置IP地址和网关
+route add default gw 192.168.5.1
+```
+
+## OpenSSH移植和使用
+
+一共需要移植三个软件包：zlib、openssl 和 openssh。
+
+### 移植zlib库
+
+解压压缩包，进入 zlib-1.2.11 目录，对其进行编译前的配置
+
+```shell
+cd zlib-1.2.11/ #进去 zlib 源码
+CC=arm-linux-gnueabihf-gcc LD=arm-linux-gnueabihf-ld AD=arm-linux-gnueabihf-as ./configure --prefix=/home/bcl/tool/zlib #配置
+make #编译
+make install
+```
+
+然后 **make** 即可编译完成，而后 **make install** 将其安装在上面配置的 **prefix** 文件夹。
+
+将 lib 目录下的 zlib 库文件拷贝到开发板根文件系统的/lib 目录下。
+
+`sudo cp lib/* /home/bcl/nfs/rootfs/lib/ -rfa`
+
+### 移植 openssl 库
+
+在Linux WiFi驱动实验中移植过了
+
+### 移植 openssh 库
+
+#### 配置和编译
+
+解压openssh 源码，`tar -vxzf openssh-8.2p1.tar.gz`
+
+配置并编译 openssh，编译 openssh 的时候不用“make install”。
+
+```shell
+cd openssh-8.2p1/
+./configure --host=arm-linux-gnueabihf --with-libs --with-zlib=/home/bcl/tool/zlib --with-ssl-dir=/home/bcl/tool/openssl --disable-etc-default-login CC=arm-linux-gnueabihf-gcc AR=arm-linux-gnueabihf-ar #配置
+make #编译
+```
+
+#### 将 openssh 相关文件拷贝到开发板中
+
+openssh 交叉编译完成以后在开发板中创建如下所示目录（如果存在的话就不需要创建）：
+
+```shell
+/usr/local/bin
+/usr/local/sbin
+/usr/local/libexec
+/usr/local/etc
+/var/run
+/var/empty
+#命令如下
+mkdir /usr/local/bin -p
+mkdir /usr/local/sbin -p
+mkdir /usr/local/libexec/ -p
+mkdir /usr/local/etc -p
+mkdir /var/run -p
+mkdir /var/empty/ -p
+```
+
+拷贝`scp sftp ssh ssh-add ssh-agent ssh-keygen ssh-keyscan`到开发板的/usr/local/bin 目录
+
+拷贝`sshd`到开发板的/usr/local/sbin 目录
+
+拷贝`moduli ssh_config sshd_config`到开发板的/usr/local/etc目录
+
+拷贝`sftp-server ssh-keysign`到开发板的/usr/local/libexec 目录
+
+创建软连接，进入开发板中的/bin 目录下，输入如下命令创建软连接：
+
+```shell
+cd /bin/
+ln -s /usr/local/bin/scp
+ln -s /usr/local/bin/sftp
+ln -s /usr/local/bin/ssh
+ln -s /usr/local/bin/ssh-add
+ln -s /usr/local/bin/ssh-agent
+ln -s /usr/local/bin/ssh-keygen
+ln -s /usr/local/bin/ssh-keyscan
+```
+
+再进入开发板的/sbin 目录下，输入如下命令创建软连接：
+
+```shell
+cd /sbin/
+ln -s /usr/local/sbin/sshd
+```
+
+打开/usr/local/etc/sshd_config 文件，找到“#PermitRootLogin”所在行，将其改为“ PermitRootLogin yes”。
+
+### Openssh设置
+
+#### 添加sshd用户
+
+命令`adduser sshd`，密码选个简单的，“123456”
+
+如果第一次添加用户的话要先将 ubuntu 下的/etc/passwd 和/etc/group 这两个文件复制到开发板根文件系统的对应目录
+
+然后修改开发板根文件系统中的/etc/passwd 和/etc/group 这两个文件，只保留“root”这一项。
+
+对于passwd文件，`root:x:0:0:root:/root:/bin/sh`
+
+对于group文件，`root:x:0:`
+
+进入到开发板的/usr/local/etc 目录下，输入如下所示命令生成秘钥文件
+
+```shell
+ssh-keygen -t rsa -f ssh_host_rsa_key -N ""
+ssh-keygen -t dsa -f ssh_host_dsa_key -N ""
+ssh-keygen -t ecdsa -f ssh_host_ecdsa_key -N ""
+ssh-keygen -t ed25519 -f ssh_host_ed25519_key -N ""
+```
+
+如果出现`sshd: no hostkeys available -- exiting.`报错，需要重新按照上面的命令再次生成密钥
+
+
+
+首先要在开发板上启动 ssh 服务，sshd 软件用于启动 ssh 服务，注意要输入全路径！
+
+`/sbin/sshd //启动 sshd 服务`
+
+也可以在/etc/init.d/rcS 文件中加入如下命令，实现 ssh 服务开机自启动： 
+
+`/sbin/sshd &`
+
+## Bash安装
+
+我所使用的是bash-5.0，解压到Ubuntu目录下，进行下面的配置，--prefix用于指定安装路径。
+
+```shell
+./configure --host=arm-linux-gnuebihf --prefix=/home/bcl/tool/bash CC=arm-linux-gnueabihf-gcc
+```
+
+配置完成之后，make 再 make install，完成安装。
+
+拷贝bin include lib到开发板根文件系统对应目录下。
+
+```shell
+sudo cp bin/* /home/bcl/nfs/rootfs/usr/bin 
+sudo cp include/bash/* /home/bcl/nfs/rootfs/usr/include/bash/ -r
+sudo cp lib/* /home/bcl/nfs/rootfs/usr/lib/ -r
+```
+

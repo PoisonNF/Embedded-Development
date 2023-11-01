@@ -16,6 +16,10 @@
 
 > [(4条消息) STM32下载程序时提示“active write protected stm32 device detected this could”_qq_888192的博客-CSDN博客](https://blog.csdn.net/qq_34447192/article/details/100582441)
 
+**Keil退出DEBUG卡死**
+
+> [keil5编译器退出调试时卡死_keil5编译卡住-CSDN博客](https://blog.csdn.net/zhzht19861011/article/details/111330781)
+
 ## Keil仿真
 
 首先是调试设置，关注左下角的CPU DLL和DialogDLL，按照图片所示设置即可，参数设置根据芯片更改，例如我这里使用的是STM32F103VE系列。 
