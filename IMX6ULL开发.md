@@ -1,3 +1,4 @@
+
 # 环境搭建与开发板操作
 
 ## 三端配网
@@ -506,6 +507,139 @@ modprobe: can't load module gpioled.ko (gpioled.ko): Invalid argument
 如上所示的gpioled.ko模块，在Ubuntu中重新编译发送到开发板根文件系统后可以正常加载。
 
 [解决disagrees about version of symbol device_create_CinzWS的博客-CSDN博客](https://blog.csdn.net/qq_37619128/article/details/124346470)
+
+## 8路UART复用
+
+所有串口的测试都使用minicom
+
+### UART1(ttymxc0)
+
+系统默认配置，做调试串口使用，不需要修改。
+
+### UART2(ttymxc1)
+
+1. 屏蔽掉 MX6UL_PAD_UART2_TX_DATA 和 MX6UL_PAD_UART2_RX_DATA 其他复用功能，只保留 TX_DATA 和 RX_DATA 功能
+
+```
+		pinctrl_uart2: uart2grp {
+			fsl,pins = <
+				MX6UL_PAD_UART2_TX_DATA__UART2_DCE_TX	0x1b0b1
+				MX6UL_PAD_UART2_RX_DATA__UART2_DCE_RX	0x1b0b1
+			/*	MX6UL_PAD_UART3_RX_DATA__UART2_DCE_RTS	0x1b0b1
+				MX6UL_PAD_UART3_TX_DATA__UART2_DCE_CTS	0x1b0b1 */
+			>;
+		};
+
+		pinctrl_uart2dte: uart2dtegrp {
+			fsl,pins = <
+			/*	MX6UL_PAD_UART2_TX_DATA__UART2_DTE_RX	0x1b0b1
+				MX6UL_PAD_UART2_RX_DATA__UART2_DTE_TX	0x1b0b1
+				MX6UL_PAD_UART3_RX_DATA__UART2_DTE_CTS	0x1b0b1
+				MX6UL_PAD_UART3_TX_DATA__UART2_DTE_RTS	0x1b0b1	*/
+			>;
+		};
+```
+
+2. 添加/修改节点标签&uart2，只使用 pinctrl_uart2，注释掉 fsl,uart-has-rtscts; status 修改为 "okay"，修改完如下
+
+```
+&uart2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart2>;
+	/* fsl,uart-has-rtscts; */
+	/* for DTE mode, add below change */
+	/* fsl,dte-mode; */
+	/* pinctrl-0 = <&pinctrl_uart2dte>; */
+	status = "okay";
+};
+```
+
+3. 在Linux源码目录下使用make dtbs命令重新编译设备树，使用cp arch/arm/boot/dts/imx6ull-alientek-emmc.dtb /home/bcl/tftpboot -f 将新设备树放到tftp目录下
+
+4. 重启开发板，检查/dev目录下是否有ttymxc1设备
+
+### UART3(ttymxc2)
+
+1. 屏蔽掉 MX6UL_PAD_UART3_TX_DATA 和 MX6UL_PAD_UART3_RX_DATA 其他复用功能，只保留 TX_DATA 和 RX_DATA 功能
+
+```
+		pinctrl_uart2: uart2grp {
+			fsl,pins = <
+				MX6UL_PAD_UART2_TX_DATA__UART2_DCE_TX	0x1b0b1
+				MX6UL_PAD_UART2_RX_DATA__UART2_DCE_RX	0x1b0b1
+			/*	MX6UL_PAD_UART3_RX_DATA__UART2_DCE_RTS	0x1b0b1
+				MX6UL_PAD_UART3_TX_DATA__UART2_DCE_CTS	0x1b0b1 */
+			>;
+		};
+
+		pinctrl_uart2dte: uart2dtegrp {
+			fsl,pins = <
+			/*	MX6UL_PAD_UART2_TX_DATA__UART2_DTE_RX	0x1b0b1
+				MX6UL_PAD_UART2_RX_DATA__UART2_DTE_TX	0x1b0b1
+				MX6UL_PAD_UART3_RX_DATA__UART2_DTE_CTS	0x1b0b1
+				MX6UL_PAD_UART3_TX_DATA__UART2_DTE_RTS	0x1b0b1	*/
+			>;
+		};
+
+		pinctrl_uart3: uart3grp {
+			fsl,pins = <
+				MX6UL_PAD_UART3_TX_DATA__UART3_DCE_TX	0x1b0b1
+				MX6UL_PAD_UART3_RX_DATA__UART3_DCE_RX	0x1b0b1
+			>;
+		};
+```
+
+2. 添加/修改节点标签&uart3，只使用 pinctrl_uart3，注释掉 fsl,uart-has-rtscts; status 修改为 "okay"，修改完如下
+
+```
+&uart3 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart3>;
+	status = "okay";
+};
+```
+
+3. 在Linux源码目录下使用make dtbs命令重新编译设备树，使用cp arch/arm/boot/dts/imx6ull-alientek-emmc.dtb /home/bcl/tftpboot -f 将新设备树放到tftp目录下
+
+4. 重启开发板，检查/dev目录下是否有ttymxc2设备
+
+### UART4(ttymxc3)
+
+1. 屏蔽掉 MX6UL_PAD_UART4_TX_DATA 和 MX6UL_PAD_UART4_RX_DATA 其他复用功能，只保留 TX_DATA 和 RX_DATA 功能
+
+```
+		pinctrl_uart4: uart4grp {
+			fsl,pins = <
+				MX6UL_PAD_UART4_TX_DATA__UART4_DCE_TX	0x1b0b1
+				MX6UL_PAD_UART4_RX_DATA__UART4_DCE_RX	0x1b0b1
+			>;
+		};
+```
+
+2. 因为在i2c1节点中使用到了串口4的IO，所以要屏蔽一下i2c1，disable掉。
+
+```
+&i2c1 {
+	clock-frequency = <100000>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_i2c1>;
+	status = "disabled";
+};
+```
+
+3. 添加/修改节点标签&uart4，只使用 pinctrl_uart4，注释掉 fsl,uart-has-rtscts; status 修改为 "okay"，修改完如下
+
+```
+&uart3 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pinctrl_uart3>;
+	status = "okay";
+};
+```
+
+3. 在Linux源码目录下使用make dtbs命令重新编译设备树，使用cp arch/arm/boot/dts/imx6ull-alientek-emmc.dtb /home/bcl/tftpboot -f 将新设备树放到tftp目录下
+
+4. 重启开发板，检查/dev目录下是否有ttymxc3设备
 
 # 正点原子IMX6ULL应用编程
 
@@ -1698,6 +1832,263 @@ nameserver 192.168.5.1 #网关
 
 重启开发板
 
+## Ubuntu-base 根文件系统构建
+
+### 下载根文件系统
+
+Ubuntu 的移植非常简单，不需要我们编译任何东西，因为 Ubuntu 官方已经将根文件系统制作好了！
+
+根文件系统下载地址：http://cdimage.ubuntu.com/
+
+点击Ubuntu-base，再点击release，根据不同CPU架构选择不同的根文件系统。
+
+I.MX6ULL 是 Cortex-A 内核的 CPU，并且有硬件浮点运算单元，因此选择 armhf 版本。
+
+教程使用的是\>ubuntu-base-16.04.5-base-armhf.tar.gz，位于开发板光盘->8、系统镜像->2、教程系统镜像->3、 文件系统->1、Ubuntu base 根文件系统中。
+
+### 解压缩根文件系统
+
+在PC的Ubuntu中的nf目录下创建一个名为ubuntu_rootfs的目录，用于保存根文件系统
+
+`sudo tar -vzxf ubuntu-base-16.04.5-base-armhf.tar.gz`进行解压
+
+### PC安装qemu工具
+
+命令为`sudo apt-get install qemu-user-static`
+
+将刚刚安装的 qemu-user-static 拷贝到刚刚解压出来的 ubuntu base 目录中，也就是 ubuntu_rootfs/usr/bin 目录下
+
+```shell
+cd /home/bcl/nfs/ubuntu_rootfs #进入到 ubuntu_rootfs 目录下
+sudo cp /usr/bin/qemu-arm-static ./usr/bin/ #拷贝 qemu-arm-static
+```
+
+### 设置软件源
+
+在设置软件源之前先将 Ubuntu 主机下的 DNS 配置文件/etc/resolv.conf 拷贝到根文件系统中，命令如下：
+
+```shell
+cd /home/bcl/nfs/ubuntu_rootfs #进入到 ubuntu_rootfs 目录下
+sudo cp /etc/resolv.conf ./etc/resolv.conf #拷贝 resolv.conf
+```
+
+设置软件源，打开根文件系统中的 ubuntu_rootfs/etc/apt/sources.list 文件，在此文件最后面添加软件源，这里添加中科大Ubuntu16.04ARM源
+
+```shell
+#中科大源
+deb http://mirrors.ustc.edu.cn/ubuntu-ports/ xenial main multiverse restricted universe
+deb http://mirrors.ustc.edu.cn/ubuntu-ports/ xenial-backports main multiverse restricted universe
+deb http://mirrors.ustc.edu.cn/ubuntu-ports/ xenial-proposed main multiverse restricted universe
+deb http://mirrors.ustc.edu.cn/ubuntu-ports/ xenial-security main multiverse restricted universe
+deb http://mirrors.ustc.edu.cn/ubuntu-ports/ xenial-updates main multiverse restricted universe
+deb-src http://mirrors.ustc.edu.cn/ubuntu-ports/ xenial main multiverse restricted universe
+deb-src http://mirrors.ustc.edu.cn/ubuntu-ports/ xenial-backports main multiverse restricted universe
+deb-src http://mirrors.ustc.edu.cn/ubuntu-ports/ xenial-proposed main multiverse restricted universe
+deb-src http://mirrors.ustc.edu.cn/ubuntu-ports/ xenial-security main multiverse restricted universe
+deb-src http://mirrors.ustc.edu.cn/ubuntu-ports/ xenial-updates main multiverse restricted universe
+```
+
+### 在主机挂载并配置根文件系统
+
+#### 在主机挂载根文件系统
+
+接下来将上面制作的根文件系统挂载到主机上，需要挂载 proc、sys、dev、dev/pts 等文件 系统，最后使用 chroot 将主机的根文件系统切换到我们前面制作的根文件系统中。
+
+在 ubuntu_rootfs 目录下创建一个名为 mount.sh 的 shell 脚本
+
+```shell
+#!/bin/bash
+echo "MOUNTING"
+sudo mount -t proc /proc /home/bcl/nfs/ubuntu_rootfs/proc
+sudo mount -t sysfs /sys /home/bcl/nfs/ubuntu_rootfs/sys
+sudo mount -o bind /dev /home/bcl/nfs/ubuntu_rootfs/dev
+sudo mount -o bind /dev/pts /home/bcl/nfs/ubuntu_rootfs/dev/pts
+sudo chroot /home/bcl/nfs/ubuntu_rootfs
+```
+
+再编写一个卸载的脚本文件，新建名为 unmount.sh 的 shell 脚本
+
+```shell
+!/bin/bash
+echo "UNMOUNTING"
+sudo umount /home/bcl/nfs/ubuntu_rootfs/proc
+sudo umount /home/bcl/nfs/ubuntu_rootfs/sys
+sudo umount /home/bcl/nfs/ubuntu_rootfs/dev/pts
+sudo umount /home/bcl/nfs/ubuntu_rootfs/dev
+```
+
+最后给予 mount.sh 和 unmount.sh 这两个 shell 脚本可执行权限
+
+```shell
+sudo chmod 777 mount.sh unmount.sh
+```
+
+执行./mount.sh即可将根文件系统挂载在主机下
+
+#### 安装常用的命令和软件
+
+由于 ubuntu base 是一个最小根文件系统，很多命令和软件都没有，因此我们需要先安装一下常用的命令和软件，输入如下命令**（注意！是在电脑的 Ubuntu 下输入这些命令，因为现在电脑的 Ubuntu 正挂载着我们移植的 Ubuntu-base 根文件系统）**：
+
+```shell
+apt update
+apt install sudo
+apt install vim
+apt install kmod
+apt install net-tools
+apt install ethtool
+apt install ifupdown
+apt install language-pack-en-base
+apt install rsyslog
+apt install htop
+apt install iputils-ping
+```
+
+#### 设置 root 用户密码
+
+设置一下 root 用户的密码，我这里root用户密码也设置为“root”。
+
+经实测==不建议设置root用户密码==，在板子上可能无法登录，可见后文**Ubuntu-base根文件系统无法登录系统**，使用 `passwd -d root` 让root用户密码为空。
+
+```shell
+passwd root #设置 root 用户密码
+
+passwd -d root #设置 root 用户为空密码
+```
+
+#### 设置本机名称和 IP 地址
+
+输入如下命令设置本机名称和 IP 地址：
+
+```shell
+echo "alientek_imx6ul" > /etc/hostname
+echo "127.0.0.1 localhost" >> /etc/hosts
+echo "127.0.0.1 alientek_imx6ul" >> /etc/hosts
+```
+
+#### 设置串口终端
+
+首先确定自己所使用的串口设备文件，比如正点原子的 ALPHA 开发板使用的 UART1 对应的串口设备文件为 ttymxc0 ， 我们需要添加一个名为 getty@ttymxc0.service 的链接，链接到 getty@.service 服务上，输入如下命令:
+
+```shell
+ln -s /lib/systemd/system/getty@.service /etc/systemd/system/getty.target.wants/getty@ttymxc0.service
+```
+
+设置好以后就可以退出根文件系统了，输入如下命令退出：
+
+```shell
+exit
+```
+
+退出以后再执行一下 unmount.sh 脚本取消挂载，命令如下：
+
+```shell
+./unmount.sh
+```
+
+至此，ubuntu base 根文件系统就已经制作好了，接下来就是挂载到开发板上去测试。
+
+### ubuntu nfs挂载测试
+
+在uboot中设置
+
+```
+setenv bootargs 'console=tty1 console=ttymxc0,115200 root=/dev/nfs nfsroot=192.168.5.11:/home/bcl/nfs/ubuntu_rootfs rw ip=192.168.5.9:192.168.5.11:192.168.5.1:255.255.255.0::eth0:off'
+
+saveenv #保存环境变量
+```
+
+### ubuntu根文件系统烧写
+
+使用如下命令进行打包
+
+```shell
+cd ubuntu_rootfs #进入到 ubuntu 根文件系统
+tar -vcjf ubuntu_rootfs.tar.bz2 * #打包根文件系统
+```
+
+再使用mfgtool进行烧写
+
+### Ubuntu-base的使用
+
+#### 添加新用户
+
+```shell
+adduser bcl #添加普通用户
+```
+
+#### 设置新用户可以使用 sudo 命令
+
+```shell
+su
+
+#给该文件增加写权限
+chmod u+w /etc/sudoers 
+
+#在最底下增加一行
+bcl ALL=(ALL:ALL) ALL
+
+#修改完成后，重新恢复该文件的只读属性
+chmod u-w /etc/sudoers
+
+```
+
+如果在使用sudo的时候遇到`sudo: unable to resolve host imx6ull: Connection refused`，需要去检查一下主机名是否错误，使用命令`sudo vim /etc/hosts`，确保文件中的主机名与使用的主机名相同。
+
+#### 网络 DHCP 配置
+
+```shell
+su #切换到 root 用户
+echo auto eth0 > /etc/network/interfaces.d/eth0
+echo iface eth0 inet dhcp >> /etc/network/interfaces.d/eth0
+/etc/init.d/networking restart
+```
+
+设置好以后重启开发板，eth0 网卡就会默认打开，可以直接上网。eth1 网卡同理，支持将上述命令中的 eth0 换为 eth1 即可。
+
+#### 开启Ubuntu下的FTP服务
+
+```shell
+sudo apt-get install vsftpd
+sudo vi /etc/vsftpd.conf
+
+#找到local_enable=YES 和 write_enable=YES 确保上面两行前面没有“#”，有的话就取消掉
+
+sudo /etc/init.d/vsftpd restart
+```
+
+#### gcc和make工具安装
+
+```shell
+sudo apt-get install gcc #安装 gcc 编译器
+sudo apt-get install make #安装 make 工具
+```
+
+### SSH安装
+
+[如何在Ubuntu上开启SSH服务 并开机启动_ubuntu 开启ssh-CSDN博客](https://blog.csdn.net/hwt0101/article/details/112527027)
+
+###  WIFI模块驱动库安装
+
+内核方面的配置就和正点原子IMX6ULL驱动编程中——Linux WIFI驱动实验相同。
+
+主要是一些库的安装。
+
+在Ubuntu下安装就很方便了，如果开发板无法连接外网就需要通过PC去挂载根文件系统。
+
+```shell
+sudo apt-get install wireless-tools
+sudo apt-get install wpasupplicant
+sudo apt-get install udhcpc
+```
+
+安装完这三个依赖就可以驱动WiFi模块了。
+
+后面的联网操作与Linux WIFI驱动实验中相同。
+
+### 系统启动自动运行
+
+`/etc/rc.local` 文件：这个文件是一个脚本启动文件，可以在系统引导时执行。可以将自己的脚本添加到这个文件中，并确保给予执行权限。
+
 ## MfgTool烧写工具
 
 MfgTool 工具是 NXP 提供的专门用于给 I.MX 系列 CPU 烧写系统的软件，此软件在 Windows 下使用。
@@ -1802,46 +2193,6 @@ route add default gw 192.168.5.1
 ### 改造自己的烧写工具
 
 这个看正点原子视频
-
-## 安装dropbear 用于SSH（没成功）
-
-需要的文件
-
-**dropbear-2022.83.tar.bz2**
-
-**zlib-1.2.11.tar.gz**
-
-### 安装zlib
-
-解压压缩包，进入 zlib-1.2.11 目录，对其进行编译前的配置
-
-`prefix=/home/bcl/tool/zlib/ CC=arm-linux-gnueabihf-gcc CFLAGS="-static -fPIC" ./configure `
-
-然后 **make** 即可编译完成，而后 **make install** 将其安装在上面配置的 **prefix** 文件夹。
-
-### 安装dropbear
-
-解压压缩包，进入 dropbear-2022.83 目录，对其进行编译前的配置：
-
-`./configure --prefix=/home/bcl/tool/dropbear --with-zlib=/home/bcl/tool/zlib CC=arm-linux-gnueabihf-gcc --host=arm --enable-static`
-
-然后 **make** 即可编译完成，而后 **make install** 将其安装在上面配置的 **prefix** 文件夹。
-
-### 使用
-
-1. 将dropbear下的文件复制到嵌入式根文件系统/usr下
-
-    `dropbear/bin`下文件复制到 `/usr/bin`目录下，`dropbear/sbin`下文件复制到 `/usr/sbin` 目录下
-
-2. 在文件系统的 /etc目录下新建 `dropbear` 目录（只能是 `dropbear` 这个名称 ），使用 **dropbearkey** 命令生成密钥
-
-    `dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key`
-
-    从私钥中提出公钥
-
-    `dropbearkey -y -f dropbear_rsa_host_key | grep "^ssh-rsa " >> authorized_keys`
-
-3. 设置 **root** 用户密码，运行 **dropbear** 即可。
 
 
 # 正点原子IMX6ULL驱动编程
@@ -8075,7 +8426,7 @@ MODULE_AUTHOR("bcl");
 
 ### 使能Linux内核自带LED驱动
 
-内核中自带LED驱动，需要通过图形化配置。
+内核中自带LED驱动，需要通过图形化配置。 
 
 在Linux源码下`make menuconfig`
 
@@ -8095,7 +8446,7 @@ MODULE_AUTHOR("bcl");
 
 LED 灯驱动文件为/drivers/leds/leds-gpio.c
 
-LED 驱动的匹配表，此表只有一个匹配项，compatible 内容为“gpio-leds”，因此设备树中的 LED 灯设备节点的 compatible 属性值也要为“gpio-leds”，否则设备和驱动匹 配不成功，驱动就没法工作。
+LED 驱动的匹配表，此表只有一个匹配项，compatible 内容为“gpio-leds”，因此设备树中的 LED 灯设备节点的 compatible 属性值也要为“gpio-leds”，否则设备和驱动匹配不成功，驱动就没法工作。
 
 ### 设备树节点编写
 
@@ -8127,6 +8478,7 @@ timer：LED 灯周期性闪烁，由定时器驱动，闪烁频率可以修改
 
 ```
 dtsled {
+	/* 在测试其他不使用Linux自带LED驱动时需要注释掉 */
 	compatible = "gpio-leds";					//兼容属性
 
 	led0 {
@@ -8827,7 +9179,47 @@ ssh-keygen -t ed25519 -f ssh_host_ed25519_key -N ""
 
 `/sbin/sshd &`
 
-## Bash安装
+## 安装dropbear 用于SSH（没成功）
+
+需要的文件
+
+**dropbear-2022.83.tar.bz2**
+
+**zlib-1.2.11.tar.gz**
+
+### 安装zlib
+
+解压压缩包，进入 zlib-1.2.11 目录，对其进行编译前的配置
+
+`prefix=/home/bcl/tool/zlib/ CC=arm-linux-gnueabihf-gcc CFLAGS="-static -fPIC" ./configure `
+
+然后 **make** 即可编译完成，而后 **make install** 将其安装在上面配置的 **prefix** 文件夹。
+
+### 安装dropbear
+
+解压压缩包，进入 dropbear-2022.83 目录，对其进行编译前的配置：
+
+`./configure --prefix=/home/bcl/tool/dropbear --with-zlib=/home/bcl/tool/zlib CC=arm-linux-gnueabihf-gcc --host=arm --enable-static`
+
+然后 **make** 即可编译完成，而后 **make install** 将其安装在上面配置的 **prefix** 文件夹。
+
+### 使用
+
+1. 将dropbear下的文件复制到嵌入式根文件系统/usr下
+
+    `dropbear/bin`下文件复制到 `/usr/bin`目录下，`dropbear/sbin`下文件复制到 `/usr/sbin` 目录下
+
+2. 在文件系统的 /etc目录下新建 `dropbear` 目录（只能是 `dropbear` 这个名称 ），使用 **dropbearkey** 命令生成密钥
+
+    `dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key`
+
+    从私钥中提出公钥
+
+    `dropbearkey -y -f dropbear_rsa_host_key | grep "^ssh-rsa " >> authorized_keys`
+
+3. 设置 **root** 用户密码，运行 **dropbear** 即可。
+
+## Bash安装（非必须）
 
 我所使用的是bash-5.0，解压到Ubuntu目录下，进行下面的配置，--prefix用于指定安装路径。
 
@@ -8845,3 +9237,69 @@ sudo cp include/bash/* /home/bcl/nfs/rootfs/usr/include/bash/ -r
 sudo cp lib/* /home/bcl/nfs/rootfs/usr/lib/ -r
 ```
 
+# 遇到的一些问题和解决方法
+
+## 执行应用程序显示Segmentation fault
+
+
+这个问题是我在Ubuntu-base根文件系统上遇到的，同样一个驱动和应用程序，在由busybox构建的根文件系统上可以执行，但在Ubuntu-base跟文件系统上显示段错误。
+
+```shell
+root@imx6ull:/lib/modules/4.1.15# ./ledAPP /dev/dtsled 1
+Segmentation fault
+```
+
+通过调试我发现是应用程序代码中关于指针的部分存在问题，源代码如下
+
+```c
+int *ledStatus;
+/* 写入led状态 */
+*ledStatus = atoi(argv[2]);
+ret = write(fd,ledStatus,1);
+if(ret < 0){
+    perror("write");
+    close(fd);
+    return -1;
+}
+```
+
+修改后
+
+```c
+int databuf[1];
+/* 写入led状态 */
+databuf[0] = atoi(argv[2]);
+ret = write(fd,databuf,1);
+if(ret < 0){
+    perror("write");
+    close(fd);
+    return -1;
+}
+```
+
+[Linux程序运行出现Segmentation fault (core dumped)的通用解决方法_segmentation fault怎么解决-CSDN博客](https://blog.csdn.net/qq_38892528/article/details/103870163)
+
+## 模块depmod出现警告
+
+```shell
+root@imx6ull:/lib/modules/4.1.15# depmod
+depmod: WARNING: could not open /lib/modules/4.1.15/modules.order: No such file or directory
+depmod: WARNING: could not open /lib/modules/4.1.15/modules.builtin: No such file or directory
+```
+
+创建modules.order和modules.builtin这两个文件即可。
+
+## Ubuntu-base根文件系统无法登录系统
+
+```shell
+Ubuntu 16.04.5 LTS imx6ull ttymxc0
+
+imx6ull login: root
+Password:
+
+#无法登录
+```
+
+在使用备份的根文件系统时，明明用户名和密码都是正确的，但是无法登录系统。
+
+解决方法：在PC上挂载Ubuntu-base，使用命令`passwd -d root`清除root的密码，即可登录系统。
