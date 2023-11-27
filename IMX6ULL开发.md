@@ -8758,6 +8758,8 @@ onfig RTL8192CU
 
 编译完成以后就会在 rtl8188EUS、rtl8189FS 和 rtl8192CU 文件夹下分别生成 8188eu.ko、 8189fs.ko 和 8192cu.ko 这三个.ko 文件。
 
+路径为`linux-imx-rel_imx_4.1.15_2.1.0_ga_alientek/drivers/net/wireless/realtek`中
+
 将三个.ko文件拷贝到开发板根文件系统下的/lib/modules/4.1.15中，供后续加载使用。
 
 ### 驱动加载测试
@@ -9055,6 +9057,738 @@ ifconfig wlan0 192.168.5.8 netmask 255.255.255.0	#手动分配，设置IP地址�
 route add default gw 192.168.5.1
 ```
 
+## Linux IIC驱动实验
+
+IIC驱动分为IIC总线驱动和IIC设备驱动
+
+### I2C总线驱动
+
+两个重要的数据结构i2c_adapter 和 i2c_algorithm
+
+Linux 内核将 SOC 的 I2C 适配器(控制器) 抽象成 i2c_adapter
+
+```c
+struct i2c_adapter {
+	struct module *owner;
+	unsigned int class;		  /* classes to allow probing for */
+	const struct i2c_algorithm *algo; /* the algorithm to access the bus */
+	void *algo_data;
+
+	/* data fields that are valid for all devices	*/
+	struct rt_mutex bus_lock;
+
+	int timeout;			/* in jiffies */
+	int retries;
+	struct device dev;		/* the adapter device */
+
+	int nr;
+	char name[48];
+	struct completion dev_released;
+
+	struct mutex userspace_clients_lock;
+	struct list_head userspace_clients;
+
+	struct i2c_bus_recovery_info *bus_recovery_info;
+	const struct i2c_adapter_quirks *quirks;
+};
+```
+
+i2c_algorithm 就是 I2C 适配器与IIC设备通信的方法。
+
+```c
+struct i2c_algorithm {
+	/* If an adapter algorithm can't do I2C-level access, set master_xfer
+	   to NULL. If an adapter algorithm can do SMBus access, set
+	   smbus_xfer. If set to NULL, the SMBus protocol is simulated
+	   using common I2C messages */
+	/* master_xfer should return the number of messages successfully
+	   processed, or a negative value on error */
+	int (*master_xfer)(struct i2c_adapter *adap, struct i2c_msg *msgs,
+			   int num);
+	int (*smbus_xfer) (struct i2c_adapter *adap, u16 addr,
+			   unsigned short flags, char read_write,
+			   u8 command, int size, union i2c_smbus_data *data);
+
+	/* To determine what the adapter supports */
+	u32 (*functionality) (struct i2c_adapter *);
+
+#if IS_ENABLED(CONFIG_I2C_SLAVE)
+	int (*reg_slave)(struct i2c_client *client);
+	int (*unreg_slave)(struct i2c_client *client);
+#endif
+};
+```
+
+master_xfer 就是 I2C 适配器的传输函数
+
+smbus_xfer 就是 SMBUS 总线的传输函数
+
+**注册IIC总线流程**
+
+1. 设置 i2c_algorithm 中的 master_xfer 函数
+2. 完成以后通过 i2c_add_numbered_adapter 或 i2c_add_adapter 这两个函数向系统注册设置好的 i2c_adapter
+
+这两个函数的区别在于 i2c_add_adapter 使用动态的总线号，而 i2c_add_numbered_adapter 使用静态总线号。
+
+### I2C设备驱动
+
+两个数据结构体i2c_client 和 i2c_driver
+
+i2c_client 就是描述设备信息的，i2c_driver 描述驱动内容
+
+```c
+struct i2c_client {
+	unsigned short flags;		/* div., see below		*/
+	unsigned short addr;		/* chip address - NOTE: 7bit	*/
+					/* addresses are stored in the	*/
+					/* _LOWER_ 7 bits		*/
+	char name[I2C_NAME_SIZE];
+	struct i2c_adapter *adapter;	/* the adapter we sit on	*/
+	struct device dev;		/* the device structure		*/
+	int irq;			/* irq issued by device		*/
+	struct list_head detected;
+#if IS_ENABLED(CONFIG_I2C_SLAVE)
+	i2c_slave_cb_t slave_cb;	/* callback for slave mode	*/
+#endif
+};
+```
+
+一个设备对应一个 i2c_client，每检测到一个 I2C 设备就会给这个 I2C 设备分配一个 i2c_client。
+
+```c
+struct i2c_driver {
+	unsigned int class;
+
+	/* Notifies the driver that a new bus has appeared. You should avoid
+	 * using this, it will be removed in a near future.
+	 */
+	int (*attach_adapter)(struct i2c_adapter *) __deprecated;
+
+	/* Standard driver model interfaces */
+	int (*probe)(struct i2c_client *, const struct i2c_device_id *);
+	int (*remove)(struct i2c_client *);
+
+	/* driver model interfaces that don't relate to enumeration  */
+	void (*shutdown)(struct i2c_client *);
+
+	/* Alert callback, for example for the SMBus alert protocol.
+	 * The format and meaning of the data value depends on the protocol.
+	 * For the SMBus alert protocol, there is a single bit of data passed
+	 * as the alert response's low bit ("event flag").
+	 */
+	void (*alert)(struct i2c_client *, unsigned int data);
+
+	/* a ioctl like command that can be used to perform specific functions
+	 * with the device.
+	 */
+	int (*command)(struct i2c_client *client, unsigned int cmd, void *arg);
+
+	struct device_driver driver;
+	const struct i2c_device_id *id_table;
+
+	/* Device detection callback for automatic device creation */
+	int (*detect)(struct i2c_client *, struct i2c_board_info *);
+	const unsigned short *address_list;
+	struct list_head clients;
+};
+```
+
+i2c_driver 类似 platform_driver，需要重点处理
+
+**注册IIC驱动流程**
+
+构建 i2c_driver
+
+构建完成以后需要向 Linux 内核注册这个 i2c_driver
+
+### IIC设备与驱动匹配过程
+
+I2C 设备和驱动的匹配过程是由 I2C 核心来完成的，drivers/i2c/i2c-core.c
+
+I2C 总线的数据结构为 i2c_bus_type，其中有个match函数，类似platform中的match函数
+
+```c
+static int i2c_device_match(struct device *dev, struct device_driver *drv)
+{
+	struct i2c_client	*client = i2c_verify_client(dev);
+	struct i2c_driver	*driver;
+
+	if (!client)
+		return 0;
+
+	/* Attempt an OF style match */
+	if (of_driver_match_device(dev, drv))
+		return 1;
+
+	/* Then ACPI style match */
+	if (acpi_driver_match_device(dev, drv))
+		return 1;
+
+	driver = to_i2c_driver(drv);
+	/* match on an id table if there is one */
+	if (driver->id_table)
+		return i2c_match_id(driver->id_table, client) != NULL;
+
+	return 0;
+}
+```
+
+### NXP官方的IIC适配器驱动
+
+在 imx6ull.dtsi 文件中找到 I.MX6U 的 I2C1 控制器节点，发现compatible属性为“fsl,imx6ul-i2c”和“fsl,imx21-i2c“
+
+在Linux源码中搜索这两个字符串可以找到驱动文件，drivers/i2c/busses/i2c-imx.c
+
+### I2C 设备驱动编写流程
+
+#### 未使用设备树
+
+在未使用设备树的时候需要在 BSP 里面使用 i2c_board_info
+
+```c
+struct i2c_board_info {
+	char type[I2C_NAME_SIZE]; /* I2C 设备名字 */
+	unsigned short flags; /* 标志 */
+	unsigned short addr; /* I2C 器件地址 */
+	void *platform_data; 
+	struct dev_archdata *archdata;
+	struct device_node *of_node;
+	struct fwnode_handle *fwnode;
+	int irq;
+};
+```
+
+type 和 addr 这两个成员变量是必须要设置的，一个是 I2C 设备的名字，一个是 I2C 设备的器件地址。
+
+可以使用宏I2C_BOARD_INFO完成对结构体的初始化，例如`I2C_BOARD_INFO("ov2640", 0x30),`
+
+#### 使用设备树
+
+使用设备树的时候 I2C 设备信息通过创建相应的节点就行了，比如 NXP 官方的 EVK 开发板在 I2C1 上接了 mag3110 这个磁力计芯片，因此必须在 i2c1 节点下创建 mag3110 子节点，然 后在这个子节点内描述 mag3110 这个芯片的相关信息。
+
+```
+	mag3110@0e {
+		compatible = "fsl,mag3110";
+		reg = <0x0e>;
+		position = <2>;
+	};
+```
+
+“mag3110@0e”是子节点名字，0e就是I2C器件地址。着重关注compatible和reg属性。
+
+#### I2C设备数据收发处理流程
+
+I2C 设备寄存器进行读写操作，i2c_transfer函数
+
+```c
+int i2c_transfer(struct i2c_adapter *adap, 
+				 struct i2c_msg *msgs, 
+				 int num)
+```
+
+函数参数和返回值含义如下： 
+
+adap：所使用的 I2C 适配器，i2c_client 会保存其对应的 i2c_adapter。 
+
+msgs：I2C 要发送的一个或多个消息。 
+
+num：消息数量，也就是 msgs 的数量。 
+
+返回值：负值，失败，其他非负值，发送的 msgs 数量。
+
+使用 i2c_transfer 函数发送数据之前要先构建好 i2c_msg。
+
+下面是使用 i2c_transfer 进行 I2C 数据收 发的示例代码
+
+```c
+* 设备结构体 */
+struct xxx_dev {
+......
+void *private_data; /* 私有数据，一般会设置为 i2c_client */
+};
+
+*
+ @description : 读取 I2C 设备多个寄存器数据
+ @param – dev : I2C 设备
+* @param – reg : 要读取的寄存器首地址
+* @param – val : 读取到的数据
+* @param – len : 要读取的数据长度
+* @return : 操作结果
+*/
+static int xxx_read_regs(struct xxx_dev *dev, u8 reg, void *val,
+ len)
+{
+    int ret;
+    struct i2c_msg msg[2];
+    struct i2c_client *client = (struct i2c_client *)
+    ->private_data;
+
+    /* msg[0]，第一条写消息，发送要读取的寄存器首地址 */
+    msg[0].addr = client->addr; /* I2C 器件地址 */
+    msg[0].flags = 0; /* 标记为发送数据 */
+    msg[0].buf = &reg; /* 读取的首地址 */
+    msg[0].len = 1; /* reg 长度 */
+
+    /* msg[1]，第二条读消息，读取寄存器数据 */
+    msg[1].addr = client->addr; /* I2C 器件地址 */
+    msg[1].flags = I2C_M_RD; /* 标记为读取数据 */
+    msg[1].buf = val; /* 读取数据缓冲区 */
+    msg[1].len = len; /* 要读取的数据长度 */
+
+    ret = i2c_transfer(client->adapter, msg, 2);
+    if(ret == 2) {
+        ret = 0;
+    } else {
+        ret = -EREMOTEIO;
+    }
+    return ret;
+}
+
+/*
+* @description : 向 I2C 设备多个寄存器写入数据
+* @param – dev : 要写入的设备结构体
+* @param – reg : 要写入的寄存器首地址
+* @param – buf : 要写入的数据缓冲区
+* @param – len : 要写入的数据长度
+* @return : 操作结果
+*/
+static s32 xxx_write_regs(struct xxx_dev *dev, u8 reg, u8 *buf,
+len)
+{
+    u8 b[256];
+    struct i2c_msg msg;
+    struct i2c_client *client = (struct i2c_client *)
+    dev->private_data;
+
+    b[0] = reg; /* 寄存器首地址 */
+    memcpy(&b[1],buf,len); /* 将要发送的数据拷贝到数组 b 里面 */
+
+    msg.addr = client->addr; /* I2C 器件地址 */
+    msg.flags = 0; /* 标记为写数据 */
+
+    msg.buf = b; /* 要发送的数据缓冲区 */
+    msg.len = len + 1; /* 要发送的数据长度 */
+
+    return i2c_transfer(client->adapter, &msg, 1);
+}
+```
+
+另外还有两个API函数分别用于I2C数据的收发操作，这两个函数最终都会调用i2c_transfer。
+
+```c
+int i2c_master_send(const struct i2c_client *client, 
+					const char *buf, 
+					int count)
+```
+
+```c
+int i2c_master_recv(const struct i2c_client *client, 
+ 					char *buf, 
+					int count)
+```
+
+两个函数再count处都必须小于64KB，因为i2c_msg的len成员是一个u16类型。
+
+### AP3216C实验
+
+#### 设备树修改
+
+开发板的AP3216C接在i2c1上，同时i2c1使用到了串口4的IO，需要对串口4IO进行一个复用。
+
+1. ==检查一下有无pinctrl_uart4的出现，在此实验中不能作为串口4使用，在设备树中disable即可。==
+
+2. 然后在i2c1节点下追加ap3216c的子节点，原先在i2c1下的两个芯片mag3110和fxls8471都可以去掉。
+
+3. 然后添加 ap3216c 子节点信息，这里8脚的AP3216C的器件地址固定就是1e，有A1和A0的版本可以调整地址
+
+    ```
+    ap3216c@1e {
+    	compatible = "alientek,ap3216c";
+    	reg = <0x1e>; //器件地址
+    };
+    ```
+
+4. make dtbs，重启开发板，在/sys/bus/i2c/devices路径下会有所有i2c设备。出现0-001e目录说明修改成功。
+
+#### 驱动编写
+
+```c
+#ifndef AP3216C_H
+#define AP3216C_H
+
+/* AP3316C 寄存器 */
+#define AP3216C_SYSTEMCONG 0x00 /* 配置寄存器 */
+#define AP3216C_INTSTATUS 0X01 /* 中断状态寄存器 */
+#define AP3216C_INTCLEAR 0X02 /* 中断清除寄存器 */
+#define AP3216C_IRDATALOW 0x0A /* IR 数据低字节 */
+#define AP3216C_IRDATAHIGH 0x0B /* IR 数据高字节 */
+#define AP3216C_ALSDATALOW 0x0C /* ALS 数据低字节 */
+#define AP3216C_ALSDATAHIGH 0X0D /* ALS 数据高字节 */
+#define AP3216C_PSDATALOW 0X0E /* PS 数据低字节 */
+#define AP3216C_PSDATAHIGH 0X0F /* PS 数据高字节 */
+
+
+#endif // !AP3216C_H
+```
+
+```c
+#include <linux/types.h>
+#include <linux/kernel.h>
+#include <linux/delay.h>
+#include <linux/ide.h>
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/errno.h>
+#include <linux/gpio.h>
+#include <linux/cdev.h>
+#include <linux/device.h>
+#include <linux/of_gpio.h>
+#include <linux/semaphore.h>
+#include <linux/timer.h>
+#include <linux/i2c.h>
+#include <asm/mach/map.h>
+#include <asm/uaccess.h>
+#include <asm/io.h>
+#include "ap3216creg.h"
+
+#define AP3216C_CNT         1
+#define AP3216C_NAME        "ap3216c"       /* 设备名字 */
+
+struct ap3216c_dev {
+    dev_t devid;                /* 设备号 */
+    struct cdev cdev;           /* 字符设备 */
+    struct class *class;        /* 类 */
+    struct device *device;      /* 设备 */
+    struct device_node *nd;     /* 设备节点 */
+    int major;                  /* 主设备号 */
+    void *private_data;         /* 私有数据 */
+    unsigned short ir,als,ps;   /* 三个光传感器数据 */
+};
+
+static struct ap3216c_dev ap3216cdev;
+
+/* 从 ap3216c 读取多个寄存器数据 */
+static int ap3216c_read_regs(struct ap3216c_dev *dev,u8 reg,void *val,int len)
+{
+    int ret;
+    struct i2c_msg msg[2];  //i2c消息
+    struct i2c_client *client = (struct i2c_client *)dev->private_data;
+
+    /* msg[0]为发送要读取的首地址 */
+    msg[0].addr = client->addr; /* ap3216c的地址 */
+    msg[0].flags = 0;           /* 标记为发送数据 */
+    msg[0].buf = &reg;          /* 读取数据的首地址 */
+    msg[0].len = 1;             /* reg长度 */
+
+    /* msg[1]为读取数据 */
+    msg[1].addr = client->addr; /* ap3216c的地址 */
+    msg[1].flags = I2C_M_RD;    /* 标记为读取数据 */
+    msg[1].buf = val;           /* 读取数据缓冲区 */
+    msg[1].len = len;           /* 要读取的数据长度 */
+
+    ret = i2c_transfer(client->adapter,msg,2);
+    if(ret == 2){
+        ret = 0;
+    }else{
+        printk("i2c rd failed=%d reg=%06x len=%d\n",ret, reg, len);
+        ret = -EREMOTEIO;
+    }
+
+    return ret;
+}
+
+/* 向 ap3216c 多个寄存器写入数据 */
+static s32 ap3216c_write_regs(struct ap3216c_dev *dev,u8 reg,u8 *buf,u8 len)
+{
+    u8 b[256];
+    struct i2c_msg msg;
+    struct i2c_client *client = (struct i2c_client *)dev->private_data;
+
+    b[0] = reg;             /* 寄存器首地址 */
+    memcpy(&b[1],buf,len);  /* 将要写入的数据拷贝到数组b中 */
+
+    msg.addr = client->addr;    /* ap3216c的地址 */
+    msg.flags = 0;              /* 标记为发送数据 */
+    msg.buf = b;                /* 要写入的数据缓冲区 */
+    msg.len = len+1;            /* 要写入的数据长度 */
+
+    return i2c_transfer(client->adapter,&msg,1);
+}
+
+/* 读取 ap3216c 指定寄存器值，读取一个寄存器 */
+static unsigned char ap3216c_read_reg(struct ap3216c_dev *dev,u8 reg)
+{
+    u8 data = 0;
+
+    ap3216c_read_regs(dev,reg,&data,1); //从reg开始读取一个字节
+    return data;
+
+#if 0
+    struct i2c_client *client = (struct i2c_client *)dev->private_data;
+    return i2c_smbus_read_byte_data(client,reg);
+#endif
+}
+
+/* 向 ap3216c 指定寄存器写入指定的值，写一个寄存器 */
+static void ap3216c_write_reg(struct ap3216c_dev *dev,u8 reg,u8 data)
+{
+    u8 buf = 0;
+    buf = data;
+    ap3216c_write_regs(dev,reg,&buf,1);
+}
+
+/* 读取 AP3216C 的数据，读取原始数据，包括 ALS,PS 和 IR
+    同时打开 ALS,IR+PS 的话两次数据读取的间隔要大于 112.5ms
+ */
+void ap3216c_readdata(struct ap3216c_dev *dev)
+{
+    unsigned char i = 0;
+    unsigned char buf[6];
+
+    /* 循环读取所有传感器数据 */
+    for(i = 0;i < 6;i++)
+    {
+        buf[i] = ap3216c_read_reg(dev,AP3216C_IRDATALOW + i);
+    }
+
+    if(buf[0] & 0x80)   /* IR_OF为1，数据无效 */
+        dev->ir = 0;
+    else
+        dev->ir = ((unsigned short)buf[1] << 2) | (buf[0] & 0x03);
+
+    dev->als = ((unsigned short)buf[3] << 8) | buf[2];
+
+    if(buf[4] & 0x40)   /* IR_OF为1，则数据无效 */
+        dev->ps = 0;
+    else
+        dev->ps = ((unsigned short)(buf[5] & 0x3f) << 4) | (buf[4] & 0x0f);
+}
+
+/* open函数 */
+static int ap3216c_open(struct inode *inode, struct file *filp)
+{
+    filp->private_data = &ap3216cdev;   //设置私有变量
+
+    /* 初始化AP3216C */
+    ap3216c_write_reg(&ap3216cdev,AP3216C_SYSTEMCONG,0x04);
+    mdelay(50);
+    ap3216c_write_reg(&ap3216cdev,AP3216C_SYSTEMCONG,0x03);
+
+    return 0;
+}
+
+/* read函数 */
+static ssize_t ap3216c_read(struct file *filp, char __user *buf, size_t cnt, loff_t *off)
+{
+    short data[3];
+    long err = 0;
+
+    struct ap3216c_dev *dev = (struct ap3216c_dev *)filp->private_data;
+
+    ap3216c_readdata(dev);
+
+    data[0] = dev->ir;
+    data[1] = dev->als;
+    data[2] = dev->ps;
+
+    err = copy_to_user(buf,data,sizeof(data));
+    return 0;
+}
+
+/* release函数 */
+static int ap3216c_release(struct inode *inode, struct file *filp)
+{
+    return 0;
+}
+
+/* AP3216C操作函数 */
+static const struct file_operations ap3216c_ops = {
+    .owner = THIS_MODULE,
+    .open = ap3216c_open,
+    .read = ap3216c_read,
+    .release = ap3216c_release,
+};
+
+/* probe函数 */
+static int ap3216c_probe(struct i2c_client *client, const struct i2c_device_id *id)
+{
+    int ret = 0;
+
+    printk("ap3216c driver and device has matched!\n");
+
+    /* 申请设备号 */
+    if(ap3216cdev.major)
+    {
+        ap3216cdev.devid = MKDEV(ap3216cdev.major,0);
+        ret = register_chrdev_region(ap3216cdev.devid,AP3216C_CNT,AP3216C_NAME);
+    }else
+    {
+        ret = alloc_chrdev_region(&ap3216cdev.devid,0,AP3216C_CNT,AP3216C_NAME);
+        ap3216cdev.major = MAJOR(ap3216cdev.devid);
+    }
+    if(ret < 0){
+        printk("ap3216c chrdev_region err!\n");
+        goto fail_devid;
+    }
+
+    printk("ap3216cdev major = %d\n",ap3216cdev.major);
+
+    /* 注册字符设备 */
+    ap3216cdev.cdev.owner = THIS_MODULE;
+    cdev_init(&ap3216cdev.cdev,&ap3216c_ops);
+    ret = cdev_add(&ap3216cdev.cdev,ap3216cdev.devid,AP3216C_CNT);
+    if(ret < 0)
+        goto fail_cdev;
+    
+    /* 自动添加设备节点 */
+    /* 添加类 */
+    ap3216cdev.class = class_create(THIS_MODULE,AP3216C_NAME);
+    if(IS_ERR(ap3216cdev.class)){
+        ret = PTR_ERR(ap3216cdev.class);
+        goto fail_class;
+    }
+
+    /* 添加设备 */
+    ap3216cdev.device = device_create(ap3216cdev.class,NULL,ap3216cdev.devid,NULL,AP3216C_NAME);
+    if(IS_ERR(ap3216cdev.device)){
+        ret = PTR_ERR(ap3216cdev.device);
+        goto fail_device;
+    }
+
+    ap3216cdev.private_data = client;
+    ap3216cdev.nd = client->dev.of_node;        //获取设备节点
+
+    return 0;
+
+fail_device:
+    device_destroy(ap3216cdev.class,ap3216cdev.devid);
+fail_class:
+    class_destroy(ap3216cdev.class);
+fail_cdev:
+    unregister_chrdev_region(ap3216cdev.devid,1);
+fail_devid:
+    return ret;
+}
+
+/* remove函数 */
+static int ap3216c_remove(struct i2c_client *client)
+{
+    /* 删除字符设备 */
+    cdev_del(&ap3216cdev.cdev);
+    /* 注销设备号 */
+    unregister_chrdev_region(ap3216cdev.devid,AP3216C_CNT);
+    /* 摧毁设备 */
+    device_destroy(ap3216cdev.class,ap3216cdev.devid);
+    /* 摧毁类 */
+    class_destroy(ap3216cdev.class);
+
+    return 0;
+}
+
+/* 传统匹配方式 ID 列表 */
+const struct i2c_device_id ap3216_id[] = {
+    {"alientek,ap3216c",0x0e},
+    //I2C_BOARD_INFO("alientek,ap3216c",0x0e),
+    {}
+};
+
+/* 设备树匹配列表 */
+const struct of_device_id ap3216c_of_match[] = {
+    {.compatible = "alientek,ap3216c"},
+    { /* Sentinel */ }
+};
+
+/* i2c驱动结构体 */
+static struct i2c_driver ap3216c_driver = {
+    .probe = ap3216c_probe,
+    .remove = ap3216c_remove,
+    .driver = {
+        .owner = THIS_MODULE,
+        .name = "ap3216c",
+        .of_match_table = ap3216c_of_match,
+    },
+    .id_table = ap3216_id,
+};
+
+/* 入口函数 */
+static int __init ap3216c_init(void)
+{
+    return i2c_add_driver(&ap3216c_driver);    //向内核注册i2c驱动
+}
+
+/* 出口函数 */
+static void __exit ap3216c_exit(void)
+{
+    return i2c_del_driver(&ap3216c_driver);  //卸载i2c驱动
+}
+
+/* 注册和卸载驱动 */
+module_init(ap3216c_init);
+module_exit(ap3216c_exit);
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("bcl");
+
+```
+
+```c
+#include "stdio.h"
+#include "unistd.h"
+#include "sys/types.h"
+#include "sys/stat.h"
+#include "sys/ioctl.h"
+#include "fcntl.h"
+#include "stdlib.h"
+#include "string.h"
+#include <poll.h>
+#include <sys/select.h>
+#include <sys/time.h>
+#include <signal.h>
+#include <fcntl.h>
+
+/* ./ap3216cAPP /dev/ap3216c
+ */
+
+int main(int argc,char *argv[])
+{
+    int fd;
+    char *filename;
+    unsigned short databuf[3];
+    unsigned short ir,als,ps;
+    int ret = 0;
+
+    if(argc != 2){
+        printf("Error Usage!\n");
+        return -1;
+    }
+
+    filename = argv[1];
+    fd = open(filename,O_RDWR);
+    if(fd < 0)
+    {
+        printf("can't open file %s\r\n", filename);
+        return -1;
+    }
+
+    while(1)
+    {
+        ret = read(fd,databuf,sizeof(databuf));
+        if(ret == 0){           /* 数据读取成功 */
+            ir = databuf[0];    /* ir 传感器数据 */
+            als = databuf[1];   /* als 传感器数据 */
+            ps = databuf[2];    /* ps 传感器数据 */
+            printf("ir = %d, als = %d, ps = %d\r\n", ir, als, ps);
+        }
+
+        usleep(200000);
+    }
+
+    close(fd);
+    return 0;
+}
+```
+
+
+
 ## OpenSSH移植和使用
 
 一共需要移植三个软件包：zlib、openssl 和 openssh。
@@ -9239,6 +9973,10 @@ sudo cp lib/* /home/bcl/nfs/rootfs/usr/lib/ -r
 
 # 遇到的一些问题和解决方法
 
+## 编译出现vmlinux报错
+
+在make驱动时如果出现`FATAL: section header offset=11259024840327220 in file 'vmlinux' is bigger than filesize=14209829`报错，说明是Linux编译的内核映像不是最新的，所有再次编译Linux即可解决报错。
+
 ## 执行应用程序显示Segmentation fault
 
 
@@ -9303,3 +10041,21 @@ Password:
 在使用备份的根文件系统时，明明用户名和密码都是正确的，但是无法登录系统。
 
 解决方法：在PC上挂载Ubuntu-base，使用命令`passwd -d root`清除root的密码，即可登录系统。
+
+## 开发板启动的时候发现WiFi无法加载
+
+![image-20231116165917054](./IMX6ULL开发.assets/image-20231116165917054.png)
+
+注意一下Linux内核配置的是否选择对，可以再看看Linux WiFi驱动实验中关于这部分的配置。最好重新编译一下WiFi驱动。
+
+## root用户 ssh远程登录 提示access denied
+
+[root用户 ssh远程登录 提示access denied_access denied ssh-CSDN博客](https://blog.csdn.net/yan31415/article/details/109546461)
+
+vi /etc/ssh/sshd_config
+
+修改PermitRootLogin yes
+
+修改好配置文件并保存，**service ssh restart** 重启SSH服务
+
+root用户需要有密码才能登录

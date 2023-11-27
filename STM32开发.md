@@ -2302,3 +2302,21 @@ PUBACK是对ＱｏＳ等级的ＰＵＢＬＩＳＨ报文的回复。
 [001-STM32+Air724UG(4G模组)基本控制篇(阿里云物联网平台)-使用MQTT接入阿里云物联网平台_杨奉武的博客-CSDN博客](https://blog.csdn.net/qq_14941407/article/details/115594411)
 
 视频教程首推B站超子说物联网，里面都是关于物联网的视频
+
+
+
+# CmBacktrace
+
+按照教程安装到工程中，也搞了一个除0错误。
+
+![image-20231120105107431](./STM32开发.assets/image-20231120105107431.png)
+
+使用命令行cmd去寻找问题所在，首先要将addr2line这个exe文件放到axf文件的目录下，要选好操作系统的位数
+
+![image-20231120105145178](./STM32开发.assets/image-20231120105145178.png)
+
+这里的.axf文件名称要按照实际的来
+
+确实能够正确寻找到问题所在
+
+[CmBacktrace使用方法-CSDN博客](https://blog.csdn.net/nicholas_duan/article/details/103470873)
