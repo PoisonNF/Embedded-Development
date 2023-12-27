@@ -641,6 +641,53 @@ modprobe: can't load module gpioled.ko (gpioled.ko): Invalid argument
 
 4. 重启开发板，检查/dev目录下是否有ttymxc3设备
 
+## GPS经纬度数据截取不够精准
+
+```c
+    char status;        //数据状态
+    float Latitude;     //纬度
+    float Longitude;    //经度
+
+ret = sscanf(GNRMC,"$GNRMC,%*10[^,],%c,%f,%*c,%f,%*c,%*f,%*f,%*6d,,,%*4s",
+                &status,
+                &Latitude,  
+                &Longitude
+                );
+printf("%d %c %4.5f %5.5f\n",ret,status,Latitude,Longitude);
+```
+
+通过sscanf函数去截取字符串中的浮点数，发现打印出来的实际值相比于获取的值略有偏差。如下所示。
+
+**$GNRMC,084257.500,A,==3014.93495==,N,==12004.80857==,E,000.0,000.0,141223,,,D*7A**
+**3 A ==3014.93506== ==12004.80859==**
+
+后面发现是数据类型的原因，先通过位数取截取字符串，再通过strtod函数变成双精度浮点数就可以正常打印。
+
+```c
+    char status;        //数据状态
+    double Latitude;     //纬度
+    double Longitude;    //经度
+
+    char LatitudeStr[10];
+    char LongitudeStr[11];
+                
+ret = sscanf(GNRMC,"$GNRMC,%*10[^,],%c,%10s,%*1c,%11s,%*c,%*.1f,%*.1f,%*6d,,,%*4s",
+                 &status,
+                 &LatitudeStr,  
+                 &LongitudeStr
+                 );
+Latitude = strtod(LatitudeStr,NULL);
+Longitude = strtod(LongitudeStr,NULL);               
+printf("%d %c %4.5f %5.5f\n",ret,status,Latitude,Longitude);
+```
+
+实际效果如下
+
+**$GNRMC,085455.000,A,==3014.93332==,N,==12004.80794==,E,000.0,000.0,141223,,,D*70**
+**3 A ==3014.93332== ==12004.80794==**
+
+
+
 # 正点原子IMX6ULL应用编程
 
 ## Poky 交叉编译工具链
@@ -876,7 +923,7 @@ bootz 80800000 - 83000000
 将bootz中的操作进行打包存放在bootcmd中
 
 ```shell
-setenv bootcmd 'tftp 80800000 zImage; tftp 83000000 imx6ull-14x14-emmc-7-1024x600-c.dtb; 
+setenv bootcmd 'tftp 80800000 zImage; tftp 83000000 imx6ull-14x14-emmc-7-1024x600-c.dtb;'
 bootz 80800000 - 83000000'
 saveenv
 boot
