@@ -686,7 +686,22 @@ printf("%d %c %4.5f %5.5f\n",ret,status,Latitude,Longitude);
 **$GNRMC,085455.000,A,==3014.93332==,N,==12004.80794==,E,000.0,000.0,141223,,,D*70**
 **3 A ==3014.93332== ==12004.80794==**
 
+## 使用无线WiFi无法使用ssh连接
 
+使用ssh连接板子出现软件中断报错，同时使用service sshd status命令去检查ssh状态，出现下列报错，需要重新生成ssh的key
+
+![image-20240104140036730](./IMX6ULL开发.assets/image-20240104140036730.png)
+
+进入到开发板的/usr/local/etc 目录下，输入如下所示命令生成秘钥文件
+
+```shell
+ssh-keygen -t rsa -f ssh_host_rsa_key -N ""
+ssh-keygen -t dsa -f ssh_host_dsa_key -N ""
+ssh-keygen -t ecdsa -f ssh_host_ecdsa_key -N ""
+ssh-keygen -t ed25519 -f ssh_host_ed25519_key -N ""
+```
+
+重新生成后即可使用ssh无线连接板子
 
 # 正点原子IMX6ULL应用编程
 
@@ -2038,7 +2053,7 @@ exit
 
 在uboot中设置
 
-```
+```shell
 setenv bootargs 'console=tty1 console=ttymxc0,115200 root=/dev/nfs nfsroot=192.168.5.11:/home/bcl/nfs/ubuntu_rootfs rw ip=192.168.5.9:192.168.5.11:192.168.5.1:255.255.255.0::eth0:off'
 
 saveenv #保存环境变量

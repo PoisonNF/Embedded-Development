@@ -292,6 +292,14 @@ HAL_GPIO_Init(GPIOx,&GPIOINIT); //调用hal库初始化函数，对GPIOx进行�
 HAL_GPIO_WritePin(GPIOx,GPIO_PIN_x,GPIO_PIN_SET); //拉低电平
 ```
 
+F4系列多了一个初始化配置选项Alternate
+
+```c
+GPIOINIT.Alternate = GPIO_AF7_USART1;	//复用为串口1
+```
+
+
+
 ***
 # RCC
 
@@ -480,22 +488,37 @@ typedef struct {
 
 ## 串口外设I/O表
 
+### F1系列
+
 |         | USART1 | USART2 | USART3 | UART4 | UART5 |
 | :-----: | :----: | :----: | :----: | :---: | :---: |
 | UART_TX |  PA9   |  PA2   |  PB10  | PC10  | PC12  |
 | UART_RX |  PA10  |  PA3   |  PB11  | PC11  |  PD2  |
 
+### F4系列
+
+|        | TXD1 | RXD1 | TXD2     | RXD2     |
+| ------ | ---- | ---- | -------- | -------- |
+| USART1 | PA9  | PA10 | PB6      | PB7      |
+| USART2 | PA2  | PA3  | PD5      | PD6      |
+| USART3 | PB10 | PB11 | PC10/PD8 | PC11/PD9 |
+| UART4  | PA0  | PA1  | PC10     | PC11     |
+| UART5  | PC12 | PD2  |          |          |
+| USART6 | PC6  | PC7  | PG14     | PG9      |
+
 ## 串口使用注意事项
 
-1.STM32F1和F2单片机上用HAL库的USART串口接收函数HAL_UART_Receive_IT循环接收串口字符，串口接收大批量数据后突然死机，不能继续接收的解决办法
+1. STM32F1和F2单片机上用HAL库的USART串口接收函数HAL_UART_Receive_IT循环接收串口字符，串口接收大批量数据后突然死机，不能继续接收的解决办法
 
 > [【BUG处理】STM32F1和F2单片机上用HAL库的USART串口接收函数HAL_UART_Receive_IT循环接收串口字符，串口接收大批量数据后突然死机，不能继续接收的解决办法_巨大八爪鱼的博客-CSDN博客](https://blog.csdn.net/ZLK1214/article/details/105624510)
 
-2.串口发送函数HAL_UART_Transmit和串口接收函数HAL_UART_Receive_IT不能并发调用，==必须用互斥量保护==。
+2. 串口发送函数HAL_UART_Transmit和串口接收函数HAL_UART_Receive_IT不能并发调用，==必须用互斥量保护==。
 
-3.串口DMA收发相关帖子，可以参考
+3. 串口DMA收发相关帖子，可以参考
 
 > [STM32_HAL库_CubeMx串口DMA通信（DMA发送+DMA空闲接收不定长数据）_何为其然的博客-CSDN博客_cubemx串口dma](https://blog.csdn.net/qq_30267617/article/details/118877845)
+
+4. ==使用F4开发板的时候，发现RX脚，比如PA10必须设置为GPIO_MODE_AF_PP才能正常工作，相反F1系列则必须设置成GPIO_MODE_INPUT才能正常工作。==
 
 ## 串口工作模式初始化示例
 
@@ -670,7 +693,7 @@ typedef struct {
 
 1.在UART和DMA的使用中，<font color=red>关联函数`__HAL_LINKDMA()`非常重要，构建数据链路，必不可少</font>
 
-2.==UART5没有DMA通道！！！==
+2.==F1系列UART5没有DMA通道！！！==
 
 3.在使用串口DMA传输时，记得打开串口的全局中断。以下两个中断函数（可以在startup中找到相对应的名字）都需要在stm32f1xx_it.c中出现
 
@@ -693,13 +716,25 @@ void USART1_IRQHandler(void)
 
 ## DMA外设通道图
 
-### DMA1
+### F1系列
+
+#### DMA1
 
 ![image-20221118155917117](STM32开发.assets/image-20221118155917117.png)
 
-### DMA2
+#### DMA2
 
 ![image-20221118155948297](STM32开发.assets/image-20221118155948297.png)
+
+### F4系列
+
+#### DMA1
+
+![img](./STM32开发.assets/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3dlaXhpbl80NDU2NzMxOA==,size_16,color_FFFFFF,t_70#pic_center.png)
+
+#### DMA2
+
+![img](./STM32开发.assets/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3dlaXhpbl80NDU2NzMxOA==,size_16,color_FFFFFF,t_70#pic_center-1704194270033-3.png)
 
 ***
 
@@ -874,7 +909,21 @@ HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
 ## 定时器分类
 
+#### F1系列
+
 ![image-20221119154357359](STM32开发.assets/image-20221119154357359.png)
+
+#### F4系列
+
+![img](./STM32开发.assets/71f0f5a29ec24ac9ab9e974f6e529c36.png)
+
+[stm32f4定时器时钟频率/选择_stm32f4时钟频率-CSDN博客](https://blog.csdn.net/weixin_45061010/article/details/118725485)
+
+从时钟树中我们可以得知：
+（1）高级定时器timer1, timer8以及通用定时器timer9, timer10, timer11的时钟来源是APB2总线
+（2）通用定时器timer2-timer5，通用定时器timer12-timer14以及基本定时器timer6,timer7的时钟来源是APB1总线
+
+**因为系统初始化SystemInit函数里初始化APB1总线时钟为4分频即42M，APB2总线时钟为2分频即84M，所以TIM1、TIM8-TIM11的时钟为APB2时钟的两倍即168M，TIM2-TIM7、TIM12-TIM14的时钟为APB1的时钟的两倍即84M。**
 
 ### 基础定时器
 
@@ -956,6 +1005,8 @@ typedef struct {
 ### 通用定时器
 
 不能使用断路和死区结构体
+
+![image-20240107113029225](./STM32开发.assets/image-20240107113029225.png)
 
 ## TIM外设I/O表
 
@@ -2380,3 +2431,85 @@ PUBACK是对ＱｏＳ等级的ＰＵＢＬＩＳＨ报文的回复。
 确实能够正确寻找到问题所在
 
 [CmBacktrace使用方法-CSDN博客](https://blog.csdn.net/nicholas_duan/article/details/103470873)
+
+# RT-Thread内核移植
+
+我所移植的RT-Thread版本为3.15。内核文件都在放在./Bsp/RTOS/RT-Thread下。
+
+内核移植操作如下：
+
+1. 在使用RT-Thread前，需要将内核文件放入工程中。在工程中创建一个文件夹名字叫RT-Thread。
+
+2. 在内核文件夹中找到以下文件并且放入工程RT-Thread文件夹中。
+
+    ![image-20230610151738477](./STM32开发.assets/image-20230610151738477.png)
+
+3. 头文件路径的添加工程中已经处理好了，可以在Options for Target 中的 C/C++选项卡中include path查看。
+
+# FreeRTOS内核移植
+
+我所移植的FreeRTOS内核版本为V10.0.1。内核文件都在放在./Bsp/RTOS/FreeRTOS下。
+
+1. 在使用FreeRTOS前，需要将内核文件放入工程中。在工程中创建一个文件夹名字叫FreeRTOS。
+
+2. 在内核文件夹中找到以下文件并且放入工程FreeRTOS文件夹中。
+
+    ![image-20230610152753785](./STM32开发.assets/image-20230610152753785.png)
+
+3. 头文件路径的添加工程中已经处理好了，可以在Options for Target 中的 C/C++选项卡中include path查看。
+
+# F4-RT-Thread移植
+
+在原有RT-Thread（3.1.5）的基础下移植，在F1上能够正常跑通。
+
+1. 首先是去gitee上下载对应版本的内核文件，[rt-thread: RT-Thread是一个来自中国的开源物联网操作系统，它提供了非常强的可伸缩能力：从一个可以运行在ARM Cortex-M0芯片上的极小内核，到中等的ARM Cortex-M3/4/7系统，甚至是多核，64位的ARM Cortex-A，MIPS32/64处理器的功能丰富系统 (gitee.com)](https://gitee.com/rtthread/rt-thread)
+
+2. F4最需要处理的是libcpu，也就是不同芯片内核对应的文件。将libcpu\arm\cortex-m4路径下的文件拷贝到工程文件夹中
+
+3. 在keil中导入对应的内核文件，这里必须使用以rvds为后缀的启动文件
+
+    ![image-20240112111825553](./STM32开发.assets/image-20240112111825553.png)
+
+4. 因为F1和F4对串口的配置不太一样，所以要想显示RT-Thread的启动文件显示，需要改一下串口的配置，位于board.c中，void rt_hw_board_init(void)内。
+5. 编译，无报错即可。
+
+# F4-FreeRTOS移植
+
+在原有FreeRTOS（10.0.1）的基础下移植，在F1上能够正常跑通。
+
+1. 首先是去gitee上下载对应版本的内核文件，[FreeRTOS-Kernel: 官方库个人镜像 (gitee.com)](https://gitee.com/linlin-study/FreeRTOS-Kernel/)
+
+2. F4最需要处理的是portable，也就是不同芯片内核对应的port文件。将portable\RVDS\ARM_CM4F路径下的文件拷贝到工程文件夹中
+
+3. 在keil中导入对应的内核文件
+
+    ![image-20240112111246921](./STM32开发.assets/image-20240112111246921.png)
+
+4. 编译。发现错误，无法找到某些函数的定义。
+
+    ```
+    .\Objects\STM32.axf: Error: L6218E: Undefined symbol traceISR_ENTER (referred from port.o).
+    .\Objects\STM32.axf: Error: L6218E: Undefined symbol traceISR_EXIT (referred from port.o).
+    .\Objects\STM32.axf: Error: L6218E: Undefined symbol traceISR_EXIT_TO_SCHEDULER (referred from port.o).
+    ```
+
+    这是SystemView，是嵌入式系统的实时记录和可视化工具。它揭示了应用程序的真实运行时行为，比调试器提供的系统洞察更深入。这在开发和处理由多线程和中断组成的复杂嵌入式系统时尤为有效。SystemView可确保系统按设计运行，跟踪低效情况，并发现意外的交互和资源冲突。
+
+5. 从FreeRTOS源码中寻找对应的定义，在FreeRTOS.h中发现了。
+
+    ```c
+    #ifndef traceISR_EXIT_TO_SCHEDULER
+        #define traceISR_EXIT_TO_SCHEDULER()
+    #endif
+    
+    #ifndef traceISR_EXIT
+        #define traceISR_EXIT()
+    #endif
+    
+    #ifndef traceISR_ENTER
+        #define traceISR_ENTER()
+    #endif
+    ```
+
+6. 将其复制到自己工程中的对应位置，重新编译。无报错。
+
