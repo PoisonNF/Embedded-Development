@@ -261,6 +261,14 @@ ZI-data不会被算做代码里因为不会被初始化;
 - 编译出现explicit type is missing ("int" assumed)解决方法，在函数前面加个void
 
     [explicit type is missing ("int" assumed)解决方法_JaLLs的博客-CSDN博客](https://blog.csdn.net/JaLLs/article/details/100726066)
+    
+- STM32芯片出现读写保护如何解除？（我犯了选错启动文件的错误，导致芯片自锁）
+
+    [STM32芯片解除写保护的方法（亲测有效）_stm32写保护如何解除-CSDN博客](https://blog.csdn.net/weixin_49805374/article/details/116604048)
+
+    [STM32自锁如何解锁？(解锁方法)No Cortex-M SW Device Found/HardFault_Handler_no cotex-m-CSDN博客](https://blog.csdn.net/as480133937/article/details/103131038)
+
+    [STM32 芯片锁死解决方法 - 壹点灵异 - 博客园 (cnblogs.com)](https://www.cnblogs.com/skullboyer/p/12951272.html)这个最方便，每次烧录按一下复位键就行
 
 ***
 # GPIO
@@ -1052,6 +1060,8 @@ typedef struct {
 
 # SD卡
 
+## SDIO驱动方式
+
 三个初始化结构体，分别为SDIO初始化结构体`SDIO_InitTypeDef`、SDIO命令初始化结构体`SDIO_CmdInitTypeDef`和SDIO数据初始化结构体`SDIO_DataInitTypeDef`。
 
 ```c
@@ -1082,6 +1092,16 @@ typedef struct {
 ```
 
 主要的驱动还是参照野火HAL库中SD读写测试
+
+[STM32CubeMX系列09——SDIO（SD卡读写、SD卡移植FATFS文件系统）_st cube sd卡-CSDN博客](https://blog.csdn.net/weixin_46253745/article/details/127865071)
+
+## SPI驱动方式
+
+下图为SPI驱动方式SD卡初始化并且进行卡类型识别流程图
+
+![卡识别流程](./STM32开发.assets/SDcard012.png)
+
+[36. SD卡—读写测试（SPI模式） — [野火\]STM32库开发实战指南——基于野火MINI开发板 文档 (embedfire.com)](https://doc.embedfire.com/mcu/stm32/f103mini/std/zh/latest/book/SDcard.html)
 
 # FatFs
 
@@ -1198,6 +1218,20 @@ can类似于485，也需要差分布线。根据CAN_H和CAN_L上的电位差判�
 | :-----------: | :----------: |
 | 显性电平（0） | Uh-Ul = 2.5V |
 | 隐性电平（1） |  Uh-Ul = 0V  |
+
+## 使用CAN遇到无法发送的问题
+
+在调试STM32F103C8T6时，发现函数一直卡在`HAL_CAN_AddTxMessage(&_tCAN->tCANHandle,&_tCAN->tCANTxHeader,ucTemp,(uint32_t *)CAN_TX_MAILBOX1)`无法完成发送。
+
+但是使用STM32F103ZET6一切正常（可能是芯片内部问题？），最后发现是函数参数输入有误，函数的最后一个参数不应该按照上面这样输入，而是传递一个指针。需要设定一个中间变量去赋值。例如
+
+```c
+uint32_t TX_MailBOX;
+TX_MailBOX = CAN_TX_MAILBOX1;
+HAL_CAN_AddTxMessage(&_tCAN->tCANHandle,&_tCAN->tCANTxHeader,ucTemp,&TX_MailBOX);
+```
+
+[关于使用STM32F103ZET6单片机CAN通讯无法正常发送问题 - STM32/STM8技术论坛 - 电子技术论坛 - 广受欢迎的专业电子论坛! (elecfans.com)](https://bbs.elecfans.com/jishu_1765541_1_1.html)
 
 ## STM32 bxCAN
 
@@ -2414,7 +2448,11 @@ PUBACK是对ＱｏＳ等级的ＰＵＢＬＩＳＨ报文的回复。
 
 视频教程首推B站超子说物联网，里面都是关于物联网的视频
 
+# ETH+LWIP
 
+[38. ETH—Lwip以太网通信 — [野火\]STM32 HAL库开发实战指南——基于野火F4系列开发板 文档 (embedfire.com)](https://doc.embedfire.com/mcu/stm32/f4/hal_general/zh/latest/doc/chapter36_1/chapter36_1.html)
+
+[STM32CubeMX学习笔记（41）——ETH接口+LwIP协议栈使用（DHCP）_stm32cubemx配置lwip-CSDN博客](https://blog.csdn.net/qq_36347513/article/details/125931365)
 
 # CmBacktrace
 

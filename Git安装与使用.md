@@ -12,9 +12,15 @@
 
 ## GitHub账号创建
 
-进入GitHub，点击sign up进行账号创建，这里就不详细讲解了。如果遇到电脑无法连接GitHub，就需要使用特殊方法了，我使用的是一个名叫FastGitHub的软件。我把Gitee上面的镜像链接放在下面，下载下来，双击.exe文件启动即可。
+进入GitHub，点击sign up进行账号创建，这里就不详细讲解了。如果遇到电脑无法连接GitHub，可以先试试下面这个方法
+
+> [一招永久解决github上不去问题，秒开-CSDN博客](https://blog.csdn.net/qq_41714549/article/details/127584479?ops_request_misc=%7B%22request%5Fid%22%3A%22170623281016800213093530%22%2C%22scm%22%3A%2220140713.130102334..%22%7D&request_id=170623281016800213093530&biz_id=0&utm_medium=distribute.pc_search_result.none-task-blog-2~all~top_positive~default-1-127584479-null-null.142)
+
+如果还是无法访问就需要使用特殊方法了，我使用的是一个名叫FastGitHub的软件。我把Gitee上面的镜像链接放在下面，下载下来，双击.exe文件启动即可。
 
 > [FastGithub: 源地址https://github.com/dotnetcore/FastGithub，考虑到Github有时候连不上，所以搬运一份镜像。 github加速神器，解决github打不开、用户头像无法加载、releases无法上传下载、git-clone、git-pull、git-push失败等问题。 (gitee.com)](https://gitee.com/XingYuan55/FastGithub?_from=gitee_search)
+>
+> [FastGithub下载及使用 - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/428454772)
 
 ## GitHub仓库创建
 
@@ -289,6 +295,10 @@ GitHub 仓库提供了转移的功能，在特定条件下可以转让仓库。�
 ![img](./Git安装与使用.assets/clip_image001.png)
 
 4. 上传本地仓库时warning: LF will be replaced by CRLF in。解决的办法就是桌面右键打开git bash here的然后输入git config --global core.autocrlf false (全局有效）
+
+5. 遇到开梯子但是无法克隆的情况，可以参考这个文章，一般是git的设置有问题，需要配置一下。
+
+    [解决使用git时遇到Failed to connect to github.com port 443 after 21090 ms: Couldn‘t connect to server_git couldn't connect to server-CSDN博客](https://blog.csdn.net/qq_40296909/article/details/134285451)
 
 # 参考教程
 
