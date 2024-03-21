@@ -407,3 +407,63 @@ FreeRTOS对于任务使用的函数与中断使用的函数并不相同
 - 暂停调度器 vTaskSuspendAll();
 
 - 恢复调度器 xTaskResumeAll(); 
+
+## 开发时遇到的问题
+
+1. 在创建一个启动线程后，创建几个子线程。子线程却无法调度，只执行一次。发现原因是高优先级的启动线程没有退出或者使用vTaskDelete(NULL);。
+
+    [stm32 freertos 任务不能调度(启动)可能原因 - 简书 (jianshu.com)](https://www.jianshu.com/p/e2fb78f8e895)
+
+2. 中断优先级过高会导致系统卡死，卡死在下面这个函数中，位于port.c
+
+    ```c
+    #if( configASSERT_DEFINED == 1 )
+        void vPortValidateInterruptPriority( void )
+        {
+        uint32_t ulCurrentInterrupt;
+        uint8_t ucCurrentPriority;
+    
+            /* 获取当前正在执行的中断的数量。*/
+            ulCurrentInterrupt = vPortGetIPSR();
+    
+            /* 中断号是用户定义的中断吗?*/
+            if( ulCurrentInterrupt >= portFIRST_USER_INTERRUPT_NUMBER )
+            {
+                /* 查找中断的优先级。*/
+                ucCurrentPriority = pcInterruptPriorityRegisters[ ulCurrentInterrupt ];
+    
+                /* 如果一个被分配了高于configMAX_SYSCALL_INTERRUPT_PRIORITY优先级的中断的服务
+                例程(ISR)调用了一个ISR安全的FreeRTOS API函数，那么下面的断言将失败。
+                ISR安全FreeRTOS API函数必须*仅*被分配优先级在
+                configMAX_SYSCALL_INTERRUPT_PRIORITY或以下的中断调用。
+    
+                数字上较低的中断优先级数在逻辑上代表较高的中断优先级，因此中断的优先级必须设置为
+                等于或数字上*高于* configMAX_SYSCALL_INTERRUPT_PRIORITY。
+    
+                使用FreeRTOS API的中断不能保留其缺省优先级为零，因为这是可能的最高优先级，它保证
+                高于configMAX_SYSCALL_INTERRUPT_PRIORITY，因此也保证无效。
+    
+                FreeRTOS维护单独的线程和ISR API函数，以确保中断条目尽可能快速和简单。
+    
+                以下链接提供详细资料:
+                http://www.freertos.org/RTOS-Cortex-M3-M4.html
+                http://www.freertos.org/FAQHelp.html */
+                configASSERT( ucCurrentPriority >= ucMaxSysCallPriority );
+            }
+    
+            /* 优先级分组:中断控制器(NVIC)允许定义每个中断优先级的比特被分割成定义中断的优先级比特和
+            定义中断的次优先级比特。为简单起见，必须将所有位定义为抢占优先位。
+            如果不是这样(如果某些位表示次优先级)，下面的断言将失败。
+    
+            如果应用程序只使用CMSIS库进行中断配置，那么在启动调度程序之前，通过调用NVIC_SetPriorityGrouping(0);
+            可以在所有Cortex-M设备上实现正确的设置。但是请注意，一些特定于供应商的外设库假设了非零优先级组设置，
+            在这种情况下，使用值为0将导致不可预测的行为。 */
+            configASSERT( ( portAIRCR_REG & portPRIORITY_GROUP_MASK ) <= ulMaxPRIGROUPValue );
+        }
+    
+    #endif /* configASSERT_DEFINED */
+    ```
+
+    FreeRTOS默认中断优先级设置范围为**5~15**(0xf)，所有外设都不能超过这个范围。
+
+    [FreeRTOS例程2-任务挂起恢复与使用中断遇到的坑! | 码农家园 (codenong.com)](https://www.codenong.com/cs106592485/)

@@ -154,7 +154,7 @@ Optimization level选择 `optimize most (-o3)`
 
 ## STM32CubeMX
 
-    [【编辑器】STM32CubeMx生成的代码改为4空格制表符缩进_cubemx生成代码tab空格为4_菜老越的博客-CSDN博客](https://blog.csdn.net/spiremoon/article/details/111519064)
+[【编辑器】STM32CubeMx生成的代码改为4空格制表符缩进_cubemx生成代码tab空格为4_菜老越的博客-CSDN博客](https://blog.csdn.net/spiremoon/article/details/111519064)
 
 ***
 # 常见问题
@@ -1273,6 +1273,47 @@ STM32 CAN控制器（bxCAN），支持CAN 2.0A 和 CAN 2.0B Active版本协议�
 缓存接收到的有效报文
 ④接收过滤器
 筛选有效报文
+
+## CAN中断
+
+STM32有2个3级深度的接收缓冲区：FIFO0和FIFO1，每个FIFO都可以存放3个完整的报文，它们完全由硬件来管理。如果是来自FIFO0的接收中断，则用CAN1_RX0_IRQn中断来处理。如果是来自FIFO1的接收中断，则用CAN1_RX1_IRQn中断来处理。在CAN的初始化配置过程中，用CAN_FilterFIFOAssignment来选择要使用FIFO。
+
+STM32的CAN通信一共有四个专用中断，分别是：
+
+1. **发送中断**
+2. **FIFO0 接收中断**
+3. **FIFO1 接收中断**
+4. **错误中断**
+
+```c
+可选回调函数    
+	//CAN通信-发送完成回调函数
+    void HAL_CAN_TxMailbox0CompleteCallback(CAN_HandleTypeDef *hcan);
+    void HAL_CAN_TxMailbox1CompleteCallback(CAN_HandleTypeDef *hcan);
+    void HAL_CAN_TxMailbox2CompleteCallback(CAN_HandleTypeDef *hcan);
+    //CAN通信-发送取消回调函数
+    void HAL_CAN_TxMailbox0AbortCallback(CAN_HandleTypeDef *hcan);
+    void HAL_CAN_TxMailbox1AbortCallback(CAN_HandleTypeDef *hcan);
+    void HAL_CAN_TxMailbox2AbortCallback(CAN_HandleTypeDef *hcan);
+
+    //CAN通信-FIFO0接收新消息回调函数
+    void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan);
+    //CAN通信-FIFO0接收满回调函数
+    void HAL_CAN_RxFifo0FullCallback(CAN_HandleTypeDef *hcan);
+    //CAN通信-FIFO1接收新消息回调函数
+    void HAL_CAN_RxFifo1MsgPendingCallback(CAN_HandleTypeDef *hcan);
+    //CAN通信-FIFO1接收满回调函数
+    void HAL_CAN_RxFifo1FullCallback(CAN_HandleTypeDef *hcan);
+
+    //CAN通信-休眠回调函数
+    void HAL_CAN_SleepCallback(CAN_HandleTypeDef *hcan);
+    //CAN通信-唤醒回调函数
+    void HAL_CAN_WakeUpFromRxMsgCallback(CAN_HandleTypeDef *hcan);
+    //CAN通信-错误回调函数
+    void HAL_CAN_ErrorCallback(CAN_HandleTypeDef *hcan);
+```
+
+[【HAL库】STM32F407----CAN通信----中断详解_can发送中断和接收中断-CSDN博客](https://blog.csdn.net/MQ0522/article/details/130422992)
 
 # PWR电源管理
 
