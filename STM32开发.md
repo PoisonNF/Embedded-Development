@@ -269,6 +269,14 @@ ZI-data不会被算做代码里因为不会被初始化;
     [STM32自锁如何解锁？(解锁方法)No Cortex-M SW Device Found/HardFault_Handler_no cotex-m-CSDN博客](https://blog.csdn.net/as480133937/article/details/103131038)
 
     [STM32 芯片锁死解决方法 - 壹点灵异 - 博客园 (cnblogs.com)](https://www.cnblogs.com/skullboyer/p/12951272.html)这个最方便，每次烧录按一下复位键就行
+    
+- 常总是会遇到double类型变量与0之间的比较。非严格情况下直接与0比较了，但实际上这是一种错误的写法
+
+    例如if(buffer[0] < 0) buffer[0]为double类型，
+
+    double为双精度类型，其一般保留15为小数。而Flaot单精度类型一般保留6为小数，故而不能直接与0进行比较。这里选择一个比较小的数1e-15，取其近似数来与double类型变量比较。
+
+    [C++ float、double判断是否等于0_c语言判断double是否为0-CSDN博客](https://blog.csdn.net/xp178171640/article/details/104565053)
 
 ***
 # GPIO
@@ -1233,6 +1241,10 @@ HAL_CAN_AddTxMessage(&_tCAN->tCANHandle,&_tCAN->tCANTxHeader,ucTemp,&TX_MailBOX)
 
 [关于使用STM32F103ZET6单片机CAN通讯无法正常发送问题 - STM32/STM8技术论坛 - 电子技术论坛 - 广受欢迎的专业电子论坛! (elecfans.com)](https://bbs.elecfans.com/jishu_1765541_1_1.html)
 
+CAN连续发送丢失数据，经过测试有效
+
+[工作记录1-CAN连续发送丢包_stm32f can发送丢帧-CSDN博客](https://blog.csdn.net/weixin_43214440/article/details/122241804)
+
 ## STM32 bxCAN
 
 STM32 CAN控制器（bxCAN），支持CAN 2.0A 和 CAN 2.0B Active版本协议。CAN 2.0A 只能处理标准数据帧且扩展帧的内容会识别错误，而CAN 2.0B Active 可以处理标准数据帧和扩展数据帧。
@@ -1314,6 +1326,18 @@ STM32的CAN通信一共有四个专用中断，分别是：
 ```
 
 [【HAL库】STM32F407----CAN通信----中断详解_can发送中断和接收中断-CSDN博客](https://blog.csdn.net/MQ0522/article/details/130422992)
+
+## CAN速率计算
+
+![image-20240410100226261](./STM32开发.assets/image-20240410100226261.png)
+
+这里的APB CLK 在F1系列上速度为36MHZ 在F4上为42MHZ
+
+[CAN总线通讯出错？检查您的采样点是否设置正确 - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/404208858)
+
+## CAN过滤器
+
+[STM32 CAN过滤器详解_stm32can过滤器掩码-CSDN博客](https://blog.csdn.net/qq_35480173/article/details/98878309)
 
 # PWR电源管理
 
@@ -2494,6 +2518,39 @@ PUBACK是对ＱｏＳ等级的ＰＵＢＬＩＳＨ报文的回复。
 [38. ETH—Lwip以太网通信 — [野火\]STM32 HAL库开发实战指南——基于野火F4系列开发板 文档 (embedfire.com)](https://doc.embedfire.com/mcu/stm32/f4/hal_general/zh/latest/doc/chapter36_1/chapter36_1.html)
 
 [STM32CubeMX学习笔记（41）——ETH接口+LwIP协议栈使用（DHCP）_stm32cubemx配置lwip-CSDN博客](https://blog.csdn.net/qq_36347513/article/details/125931365)
+
+## 减少 lwip 消耗 的 RAM
+
+使用正点原子的LWIP移植例程，发现其ZI-DATA巨大无比，所以需要想办法减小对RAM的占用
+
+首先是不是用正点原子写的malloc函数，使用stdlib.h中的malloc函数。
+
+1、修改最大一包数据的大小 **TCP_MSS** ， 即 TCP最大报文段大小，根据自己的应用进行修改，比如一包数据最大 256字节，在 **lwipopts.h** 文件中修改为
+
+`\#define TCP_MSS             (300 - 40)  */\* TCP_MSS = (Ethernet MTU - IP header size - TCP header size) \*/`*
+
+2、因为我使用 FreeRTOS 驱动 lwip,因此 lwip 的线程栈大小，也是 可以减少内存的，即设定 **TCPIP_THREAD_STACKSIZE** ，在 **lwipopts.h** 文件中，这个线程栈的单位是按照 **字** 计算的哦，要注意！！！
+
+[减少 lwip 消耗 的 RAM - 所长 - 博客园 (cnblogs.com)](https://www.cnblogs.com/suozhang/p/8672264.html)
+
+## 关于send和sendto
+
+`sendto` 和 `send` 都是用于在套接字上发送数据的函数，但它们有一些区别：
+
+1. **用途**：
+    - `sendto`：通常用于在支持数据报的协议（如UDP）上发送数据。它可以在发送数据的同时指定目标地址和端口。
+    - `send`：通常用于在面向连接的协议（如TCP）上发送数据。它发送数据到已连接的套接字，不需要再次指定目标地址和端口，因为连接已经建立。
+2. **参数**：
+    - `sendto`：除了要发送的数据外，还需要指定目标地址和端口等信息。
+    - `send`：通常只需要提供要发送的数据即可，因为在使用 `send` 前已经建立了连接。
+3. **返回值**：
+    - `sendto`：返回实际发送的字节数或者错误码。
+    - `send`：返回实际发送的字节数或者错误码。
+4. **适用协议**：
+    - `sendto`：主要用于UDP协议，因为UDP是面向数据报的，每个数据报都需要指定目标地址和端口。
+    - `send`：主要用于TCP协议，因为TCP是面向连接的，发送数据时无需再次指定目标地址和端口。
+
+总的来说，`sendto` 用于发送无连接的数据报，而 `send` 用于发送已建立连接的数据。
 
 # CmBacktrace
 
