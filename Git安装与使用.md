@@ -300,6 +300,8 @@ GitHub 仓库提供了转移的功能，在特定条件下可以转让仓库。�
 
     [解决使用git时遇到Failed to connect to github.com port 443 after 21090 ms: Couldn‘t connect to server_git couldn't connect to server-CSDN博客](https://blog.csdn.net/qq_40296909/article/details/134285451)
 
+6. 克隆时出现error: RPC failed; curl 92 HTTP/2 stream 5 was not closed cleanly: CANCEL (err 8)错误， 这个问题的出现是因为目标仓库太大， 或者是历史中存在大文件提交导致。[git clone失败问题解决 - 汗牛充栋 - 博客园 (cnblogs.com)](https://www.cnblogs.com/quenwaz/p/18115058)
+
 # 参考教程
 
 [(5条消息) Git可视化教程——Git Gui的使用_廿半的博客-CSDN博客_git gui使用](https://blog.csdn.net/qq_34842671/article/details/70916587)

@@ -272,6 +272,10 @@ errQUEUE_FULL: 队列已经满了，消息发送失败。
 
 ## 信号量
 
+## API
+
+[FreeRTOS系列第20篇---FreeRTOS信号量API函数_xsemaphorehandle-CSDN博客](https://blog.csdn.net/zhzht19861011/article/details/50920336)
+
 ### 创建
 
 |          |              二进制信号量               |          计数型信号量          |

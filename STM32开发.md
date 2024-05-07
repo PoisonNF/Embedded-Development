@@ -1525,6 +1525,56 @@ void PVD_Config(void)
  }
 ```
 
+# DWT
+
+在Cortex-M里面有一个外设叫DWT(Data Watchpoint and Trace)，是用于系统调试及跟踪，它有一个32位的寄存器叫CYCCNT， 它是一个向上的计数器，记录的是内核时钟运行的个数，内核时钟跳动一次，该计数器就加1，精度非常高。
+
+对于模拟IIC或者模拟SPI在延时us的时候很有用。
+
+```c
+#define  DEM_CR      *(volatile u32 *)0xE000EDFC
+#define  DWT_CR      *(volatile u32 *)0xE0001000
+#define  DWT_CYCCNT  *(volatile u32 *)0xE0001004
+#define  DEM_CR_TRCENA                   (1 << 24)
+#define  DWT_CR_CYCCNTENA                (1 <<  0)
+
+void DWT_Init()
+{
+    DEM_CR  |=  DEM_CR_TRCENA; /*对DEMCR寄存器的位24控制，写1使能DWT外设。*/
+    DWT_CYCCNT = 0;/*对于DWT的CYCCNT计数寄存器清0。*/
+    DWT_CR  |=  DWT_CR_CYCCNTENA;/*对DWT控制寄存器的位0控制，写1使能CYCCNT寄存器。*/
+}
+
+void DWT_DelayUS(uint32_t _ulDelayTime)
+{
+    uint32_t tCnt, tDelayCnt;
+    uint32_t tStart;
+           
+    tStart = DWT_CYCCNT; /* 刚进入时的计数器值 */
+    tCnt = 0;
+    tDelayCnt = _ulDelayTime * (SystemCoreClock / 1000000);
+    /* 需要的节拍数 */    /*SystemCoreClock :系统时钟频率*/                 
+
+    while(tCnt < tDelayCnt)
+      {
+        tCnt = DWT_CYCCNT - tStart; 
+        /* 求减过程中，如果发生第一次32位计数器重新计数，依然可以正确计算 */       
+      }
+}
+
+void DWT_DelayMS(uint32_t _ulDelayTime)
+{
+        bsp_DelayUS(1000*_ulDelayTime);
+}
+```
+
+优点：方便移植，经过测试在M3、M4、M7内核的MCU上都可以使用。
+缺点：和定时器一样，都有一个延时的最大时间，测量代码运行时间的最大值。
+
+[52. DWT—内核定时器 — [野火\]STM32库开发实战指南——基于野火霸道开发板 文档 (embedfire.com)](https://doc.embedfire.com/mcu/stm32/f103badao/std/zh/latest/book/DWT.html)
+
+[FreeRTOS中实现精确的us级延时_freertos us延时-CSDN博客](https://blog.csdn.net/w237838/article/details/134771598)
+
 # Bootloader
 
 ## Flash分区
