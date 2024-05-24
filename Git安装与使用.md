@@ -302,6 +302,14 @@ GitHub 仓库提供了转移的功能，在特定条件下可以转让仓库。�
 
 6. 克隆时出现error: RPC failed; curl 92 HTTP/2 stream 5 was not closed cleanly: CANCEL (err 8)错误， 这个问题的出现是因为目标仓库太大， 或者是历史中存在大文件提交导致。[git clone失败问题解决 - 汗牛充栋 - 博客园 (cnblogs.com)](https://www.cnblogs.com/quenwaz/p/18115058)
 
+7. 一般是使用https上传时出现400错误，可以使用下面这个命令来改变成SSH的方式，需要在GitHub上绑定SSH密钥，根据前文SSH在GitHub中的使用操作
+
+    `$ git remote set-url origin https://github.com/username/repository.git`
+
+    然后会因为网络原因不太稳定，多上传几次就能成功上传。
+
+    [Git git push错误：请求的URL返回错误400|极客教程 (geek-docs.com)](https://geek-docs.com/git/git-questions/612_git_git_push_error_the_requested_url_returned_error_400.html)
+
 # 参考教程
 
 [(5条消息) Git可视化教程——Git Gui的使用_廿半的博客-CSDN博客_git gui使用](https://blog.csdn.net/qq_34842671/article/details/70916587)
