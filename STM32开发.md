@@ -277,6 +277,8 @@ ZI-data不会被算做代码里因为不会被初始化;
     double为双精度类型，其一般保留15为小数。而Flaot单精度类型一般保留6为小数，故而不能直接与0进行比较。这里选择一个比较小的数1e-15，取其近似数来与double类型变量比较。
 
     [C++ float、double判断是否等于0_c语言判断double是否为0-CSDN博客](https://blog.csdn.net/xp178171640/article/details/104565053)
+    
+- [Stm32 调试时发生HardFault_Handler - R1chie - 博客园 (cnblogs.com)](https://www.cnblogs.com/r1chie/p/13558091.html)
 
 ***
 # GPIO
@@ -1524,6 +1526,10 @@ void PVD_Config(void)
      LED_RED;
  }
 ```
+
+[STM32 PVD的使用（掉电检测）_stm32掉电中断-CSDN博客](https://blog.csdn.net/qq_27575841/article/details/107602983)
+
+[STM32 F103 使用HAL库配置PVD_stm32 cubemx如何配置pvd-CSDN博客](https://blog.csdn.net/chenjk10/article/details/104925946)
 
 # DWT
 
