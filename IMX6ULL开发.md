@@ -1238,6 +1238,48 @@ make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- menuconfig
 
 所以使用make ARCH=arm CROSS_COMPILE=arm-linux-gnueabihf- -j16编译Uboot
 
+### Uboot更新内核镜像和设备树
+
+[uboot环境下更新系统镜像和设备树_uboot 更新设备树-CSDN博客](https://blog.csdn.net/Crazy_Diamond_/article/details/115033078)
+
+默认的Uboot中并没有fatwrite这个命令，需要在板子的配置头文件中(mx6ull_alientek_emmc.h)增加宏定义
+
+```c
+#define CONFIG_FAT_WRITE            /* 使能fatwrite命令 */
+```
+
+重新编译Uboot，可以在Uboot中更新Uboot
+
+```
+mmc dev 1 0                        /* 切换到EMMC的分区0 */
+tftp 80800000 u-boot.imx           /* 下载u-boot.imx到DRAM中的指定地址中 */
+mmc write 80800000 2 33E        　 /* 烧写u-boot.imx到EMMC中,这里的33E代表总大小/512后的页数，用十六进制表示 */
+mmc partconf 1 1 0 0               /* 分区配置 第一个1代表设备， 第二个1代表响应发送，启动分区和访问分区均设置0*/
+```
+
+出现下面提示说明修改完成
+
+```
+=> fatwrite
+fatwrite - write file into a dos filesystem
+
+Usage:
+fatwrite <interface> <dev[:part]> <addr> <filename> <bytes>
+    - write file 'filename' from the address 'addr' in RAM
+      to 'dev' on 'interface'
+
+```
+
+详细看下面这个教程
+
+[Linux-在uboot中更新uboot（包含SD卡和EMMC）_linux 刷新emmc,linux-在uboot中更新uboot(包含sd卡和emmc)-CSDN博客](https://blog.csdn.net/qq_34752070/article/details/108674610)
+
+
+
+最后是如何在不使用usb烧录的情况下更新Linux镜像和设备树
+
+[Linux-使用uboot命令将Linux镜像和设备树文件下载到EMMC中 - 不要让自己太懒 - 博客园 (cnblogs.com)](https://www.cnblogs.com/wenhao-Web/p/13212761.html)
+
 ## Linux内核相关
 
 ### Linux内核编译
@@ -2150,6 +2192,20 @@ sudo apt-get install udhcpc
 ### 系统启动自动运行
 
 `/etc/rc.local` 文件：这个文件是一个脚本启动文件，可以在系统引导时执行。可以将自己的脚本添加到这个文件中，并确保给予执行权限。
+
+### TFTP安装
+
+Ubuntu-base本身并没有tftp所以需要安装才能实现tftp下载
+
+如果没有安装在命令行中输入tftp会显示
+
+tftp: command not found
+
+使用apt-get install tftp进行下载，可能在开发板上无法下载，可以借助ubuntu_rootfs中的mount.sh挂载在PC的Ubuntu中进行下载
+
+如果需要开发板也作为tftp的服务器可以按照下面这个网页中的方式去操作，要安装xinetd
+
+[开发板与虚拟机tftp服务器安装与使用_开发板上使用tftp -gr,并没有拷贝文件但是显示成功了-CSDN博客](https://blog.csdn.net/qq_2580123/article/details/112443644)
 
 ## MfgTool烧写工具
 
@@ -9102,9 +9158,11 @@ network={
 
 ### 开机自动打开WiFi并且联网
 
-可以对rcS文件进行修改，使得WiFi开机自启动，并且联网。
+可以对自启动文件进行修改，使得WiFi开机自启动，并且联网。
 
-rcS文件位于/etc/init.d下。
+自启动文件文件路径为/etc/init.d/rcS	（Busybox）
+
+自启动文件文件路径为/etc/rc.local	（Ubuntu-base）
 
 增加内容为
 
