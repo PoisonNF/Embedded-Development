@@ -2624,6 +2624,8 @@ PUBACK是对ＱｏＳ等级的ＰＵＢＬＩＳＨ报文的回复。
 
 [CmBacktrace使用方法-CSDN博客](https://blog.csdn.net/nicholas_duan/article/details/103470873)
 
+[Hard Fault定位利器——开源组件CmBacktrace-CSDN博客](https://blog.csdn.net/ylzmm/article/details/135038843)
+
 # RT-Thread内核移植
 
 我所移植的RT-Thread版本为3.15。内核文件都在放在./Bsp/RTOS/RT-Thread下。

@@ -2207,6 +2207,17 @@ tftp: command not found
 
 [开发板与虚拟机tftp服务器安装与使用_开发板上使用tftp -gr,并没有拷贝文件但是显示成功了-CSDN博客](https://blog.csdn.net/qq_2580123/article/details/112443644)
 
+### TFTP使用
+
+下载文件使用tftp的方式
+
+1. 将需要下载的文件放入虚拟机Ubuntu的tftpboot文件夹中，该文件夹是tftp的共享文件夹
+
+2. 板子输入命令 tftp 192.168.5.11
+3. 输入get filename 获取文件
+4. 输入q退出tftp模式
+5. 可以使用ls -l查看文件时间，因为i.mx6ull的时间不一定是最新的时间，使用date命令查看
+
 ## MfgTool烧写工具
 
 MfgTool 工具是 NXP 提供的专门用于给 I.MX 系列 CPU 烧写系统的软件，此软件在 Windows 下使用。
