@@ -36,6 +36,20 @@ iface eth0 inet static
 3. 按下键盘 ESC，然后输入执行 :wq 保存并退出
 4. 执行韦东山为`/etc/init.d/S40network restart `正点原子为`/etc/init.d/networking restart`重启网络服务。
 
+## 在PC上更改外接网卡的配置
+
+1. 右键以管理员身份启动VMware
+
+2. 在虚拟机设置中增加一个网络适配器，选择桥接模式（自动），下图的网络适配器2就是新加的
+
+    ![image-20240819103511805](./IMX6ULL开发.assets/image-20240819103511805.png)
+
+3. 上方菜单栏，点击编辑，虚拟网络编辑器
+
+4. 在虚拟网络编辑器中，将VMnet8（桥接模式）选择外部连接网卡，例如我这边的ASIX就是外部网卡
+
+    ![image-20240819103650256](./IMX6ULL开发.assets/image-20240819103650256.png)
+
 ## 下载BSP以及配置工具链
 
 ### 配置 repo
