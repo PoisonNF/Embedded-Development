@@ -19,6 +19,8 @@
 - 创建线程的方式与RT-Thread十分相似，需要注意的是在优先级设置上，FreeRTOS是**值越大优先级越大**，而RT-Thread则恰恰相反。
 - FreeRTOS默认使用的是抢占式调度，还支持协程调度，RT-Thread也是抢占式调度（时间片），但不支持协程调度。
 
+[浅析RT-Thread与FreeRTOS两个系统的实现差异 - 嵌入式技术论坛 - 电子技术论坛 - 广受欢迎的专业电子论坛! (elecfans.com)](https://bbs.elecfans.com/jishu_2282888_1_1.html)
+
 ## CMSIS_V1和CMSIS_V2的区别
 
 使用STM32CubeMX生成代码时，可以选择两者之一的版本。
